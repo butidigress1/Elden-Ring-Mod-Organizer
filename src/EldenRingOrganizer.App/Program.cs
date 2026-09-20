@@ -71,7 +71,7 @@ public static class Program
                 throw new InvalidOperationException("ImGui D3D11 backend initialization failed.");
             }
 
-            var shell = new OrganizerShell(AppContext.BaseDirectory);
+            using var shell = new OrganizerShell(AppContext.BaseDirectory);
             shell.ApplyStyle();
 
             GLFW.SetFramebufferSizeCallback(window, Resized);
