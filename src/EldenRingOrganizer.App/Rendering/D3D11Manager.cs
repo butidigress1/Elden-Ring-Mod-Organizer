@@ -22,11 +22,15 @@ public unsafe sealed class D3D11Manager : IDisposable
 
     public D3D11Manager(GLFWwindowPtr window)
     {
+#pragma warning disable CS0618
         _dxgi = DXGI.GetApi();
+#pragma warning restore CS0618
         _dxgi.CreateDXGIFactory2(0, out _factory);
         _adapter = GetHardwareAdapter();
 
+#pragma warning disable CS0618
         _d3d11 = D3D11.GetApi();
+#pragma warning restore CS0618
         D3DFeatureLevel[] levels = [D3DFeatureLevel.Level111, D3DFeatureLevel.Level110];
         ID3D11Device* baseDevice;
         ID3D11DeviceContext* baseContext;
@@ -66,7 +70,7 @@ public unsafe sealed class D3D11Manager : IDisposable
         GLFW.GetWindowSize(window, &width, &height);
         var hwnd = GLFW.GetWin32Window(window);
 
-        _swapChainDesc = new SwapChainDesc1
+        var desc = new SwapChainDesc1
         {
             Width = (uint)Math.Max(1, width),
             Height = (uint)Math.Max(1, height),
@@ -87,13 +91,17 @@ public unsafe sealed class D3D11Manager : IDisposable
             ScanlineOrdering = ModeScanlineOrder.Unspecified
         };
 
+        ComPtr<IDXGISwapChain1> swapChain;
         _factory.CreateSwapChainForHwnd(
             (IUnknown*)Device.Handle,
             hwnd,
-            &_swapChainDesc,
+            &desc,
             &fullscreenDesc,
-            null,
-            &_swapChain.Handle);
+            (IDXGIOutput*)null,
+            &swapChain.Handle);
+
+        _swapChain = swapChain;
+        _swapChainDesc = desc;
 
         RecreateBackbuffer();
         Width = width;
@@ -108,7 +116,8 @@ public unsafe sealed class D3D11Manager : IDisposable
             return;
         }
 
-        DeviceContext.OMSetRenderTargets(0, null, null);
+        ID3D11RenderTargetView* noRenderTarget = null;
+        DeviceContext.OMSetRenderTargets(1, &noRenderTarget, (ID3D11DepthStencilView*)null);
         _backbuffer.Release();
         _renderTargetView.Release();
 
@@ -126,8 +135,8 @@ public unsafe sealed class D3D11Manager : IDisposable
 
     public void SetTarget()
     {
-        var renderTarget = _renderTargetView.Handle;
-        DeviceContext.OMSetRenderTargets(1, &renderTarget, null);
+        ID3D11RenderTargetView* renderTarget = _renderTargetView.Handle;
+        DeviceContext.OMSetRenderTargets(1, &renderTarget, (ID3D11DepthStencilView*)null);
         var viewport = Viewport;
         DeviceContext.RSSetViewports(1, &viewport);
     }
@@ -141,7 +150,10 @@ public unsafe sealed class D3D11Manager : IDisposable
     {
         _swapChain.GetBuffer(0, out _backbuffer);
         ID3D11RenderTargetView* renderTarget;
-        Device.CreateRenderTargetView((ID3D11Resource*)_backbuffer.Handle, null, &renderTarget);
+        Device.CreateRenderTargetView(
+            (ID3D11Resource*)_backbuffer.Handle,
+            (RenderTargetViewDesc*)null,
+            &renderTarget);
         _renderTargetView.Handle = renderTarget;
     }
 
