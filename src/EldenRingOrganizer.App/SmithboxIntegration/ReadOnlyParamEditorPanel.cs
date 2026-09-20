@@ -90,7 +90,7 @@ public sealed class ReadOnlyParamEditorPanel
 
             if (changed)
             {
-                ImGui.PushStyleColor(ImGuiCol.Text, UI.Current.ImGui_PrimaryChanged_Text);
+                ImGui.PushStyleColor(ImGuiCol.Text, StudioCore.Application.UI.Current.ImGui_PrimaryChanged_Text);
             }
 
             var label = displayName == internalName
@@ -146,7 +146,7 @@ public sealed class ReadOnlyParamEditorPanel
             var changed = diffRows?.Contains(row) == true;
             if (changed)
             {
-                ImGui.PushStyleColor(ImGuiCol.Text, UI.Current.ImGui_PrimaryChanged_Text);
+                ImGui.PushStyleColor(ImGuiCol.Text, StudioCore.Application.UI.Current.ImGui_PrimaryChanged_Text);
             }
 
             if (ImGui.Selectable($"{labelText}##row_{i}", ReferenceEquals(_selectedRow, row)))
@@ -242,7 +242,7 @@ public sealed class ReadOnlyParamEditorPanel
             ImGui.TableSetColumnIndex(1);
             if (changed)
             {
-                ImGui.TextColored(UI.Current.ImGui_PrimaryChanged_Text, FormatValue(primaryValue));
+                ImGui.TextColored(StudioCore.Application.UI.Current.ImGui_PrimaryChanged_Text, FormatValue(primaryValue));
             }
             else
             {
