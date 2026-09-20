@@ -1,0 +1,3 @@
+[submodule "external/Smithbox"]
+	path = external/Smithbox
+	url = https://github.com/vawser/Smithbox.git
