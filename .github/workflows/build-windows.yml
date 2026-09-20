@@ -10,9 +10,20 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 10.0.x
+
+      - name: Verify Smithbox pin
+        shell: pwsh
+        run: |
+          $sha = git -C external/Smithbox rev-parse HEAD
+          if ($sha -ne "f5969c060cea240476e9dd4d6a64eafa9dbafaab") {
+            throw "Unexpected Smithbox revision: $sha"
+          }
 
       - name: Restore
         run: dotnet restore EldenRingOrganizer.slnx
@@ -23,13 +34,15 @@ jobs:
       - name: Test
         shell: pwsh
         run: |
-          $tests = Get-ChildItem -Recurse -Filter *.csproj | Where-Object { $_.FullName -match '[\\/]tests?[\\/]' }
+          $tests = Get-ChildItem -Recurse -Filter *.csproj | Where-Object {
+            $_.FullName -notmatch '[\\/]external[\\/]' -and $_.FullName -match '[\\/]tests?[\\/]'
+          }
           if ($tests) {
             foreach ($test in $tests) {
               dotnet test $test.FullName -c Release --no-build
             }
           } else {
-            Write-Host "No test projects present."
+            Write-Host "No ERO test projects present."
           }
 
       - name: Publish
@@ -38,39 +51,43 @@ jobs:
       - name: Add runtime directories
         shell: pwsh
         run: |
-          "mods", "profiles", "cache", "generated", "logs" | ForEach-Object { New-Item -ItemType Directory -Path "artifacts/EldenRingOrganizer/$_" -Force | Out-Null }
+          "mods", "profiles", "cache", "generated", "logs" | ForEach-Object {
+            New-Item -ItemType Directory -Path "artifacts/EldenRingOrganizer/$_" -Force | Out-Null
+          }
 
       - name: Verify publish output
         shell: pwsh
         run: |
           $root = "artifacts/EldenRingOrganizer"
-          $exe = Join-Path $root "EldenRingOrganizer.exe"
-          if (-not (Test-Path $exe)) {
-            throw "EldenRingOrganizer.exe was not produced."
+          $required = @(
+            "EldenRingOrganizer.exe",
+            "Smithbox.Program.dll",
+            "Andre.Formats.dll",
+            "Andre.SoulsFormats.dll",
+            "Assets\PARAM\ER",
+            "Assets\Localization",
+            "Licenses\Smithbox-LICENSE.txt",
+            "glfw3.dll",
+            "cimgui.dll"
+          )
+
+          foreach ($entry in $required) {
+            if (-not (Test-Path (Join-Path $root $entry))) {
+              throw "Required publish asset missing: $entry"
+            }
           }
 
-          $files = Get-ChildItem $root -File
+          $files = Get-ChildItem $root -File -Recurse
           Write-Host "Published file count: $($files.Count)"
-          $files | Sort-Object Name | Select-Object Name, Length
-
-          $native = $files | Where-Object {
-            $_.Extension -eq ".dll" -and (
-              $_.Name -match "glfw|imgui|cimgui|Hexa|Silk|Direct3D|DXGI"
-            )
-          }
-          Write-Host "Relevant native/interop dependencies:"
-          $native | Sort-Object Name | Select-Object Name, Length
-
-          if ($files.Count -lt 10) {
-            throw "Publish output is unexpectedly sparse; expected normal self-contained deployment with dependencies beside the EXE."
-          }
+          Write-Host "Published size: $([Math]::Round(($files | Measure-Object Length -Sum).Sum / 1MB, 2)) MB"
+          Get-ChildItem (Join-Path $root "Assets\PARAM\ER\Defs") -Filter *.xml | Select-Object -First 10 Name
 
       - name: Package
         shell: pwsh
-        run: Compress-Archive -Path "artifacts/EldenRingOrganizer/*" -DestinationPath "artifacts/EldenRingOrganizer-0.1C-win-x64.zip" -Force
+        run: Compress-Archive -Path "artifacts/EldenRingOrganizer/*" -DestinationPath "artifacts/EldenRingOrganizer-0.1C-SmithboxParamView-win-x64.zip" -Force
 
       - uses: actions/upload-artifact@v4
         with:
-          name: EldenRingOrganizer-0.1C-win-x64
-          path: artifacts/EldenRingOrganizer-0.1C-win-x64.zip
+          name: EldenRingOrganizer-0.1C-SmithboxParamView-win-x64
+          path: artifacts/EldenRingOrganizer-0.1C-SmithboxParamView-win-x64.zip
           if-no-files-found: error
