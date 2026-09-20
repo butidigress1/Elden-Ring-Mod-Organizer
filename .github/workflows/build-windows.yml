@@ -33,7 +33,7 @@ jobs:
           }
 
       - name: Publish
-        run: dotnet publish src/EldenRingOrganizer.App/EldenRingOrganizer.App.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o artifacts/EldenRingOrganizer
+        run: dotnet publish src/EldenRingOrganizer.App/EldenRingOrganizer.App.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=false -o artifacts/EldenRingOrganizer
 
       - name: Add runtime directories
         shell: pwsh
@@ -43,10 +43,27 @@ jobs:
       - name: Verify publish output
         shell: pwsh
         run: |
-          if (-not (Test-Path "artifacts/EldenRingOrganizer/EldenRingOrganizer.exe")) {
+          $root = "artifacts/EldenRingOrganizer"
+          $exe = Join-Path $root "EldenRingOrganizer.exe"
+          if (-not (Test-Path $exe)) {
             throw "EldenRingOrganizer.exe was not produced."
           }
-          Get-ChildItem "artifacts/EldenRingOrganizer" -Recurse | Select-Object FullName, Length
+
+          $files = Get-ChildItem $root -File
+          Write-Host "Published file count: $($files.Count)"
+          $files | Sort-Object Name | Select-Object Name, Length
+
+          $native = $files | Where-Object {
+            $_.Extension -eq ".dll" -and (
+              $_.Name -match "glfw|imgui|cimgui|Hexa|Silk|Direct3D|DXGI"
+            )
+          }
+          Write-Host "Relevant native/interop dependencies:"
+          $native | Sort-Object Name | Select-Object Name, Length
+
+          if ($files.Count -lt 10) {
+            throw "Publish output is unexpectedly sparse; expected normal self-contained deployment with dependencies beside the EXE."
+          }
 
       - name: Package
         shell: pwsh
