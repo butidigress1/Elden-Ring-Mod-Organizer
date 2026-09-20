@@ -19,15 +19,15 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\..\external\Smithbox\src\Smithbox.Program\Smithbox.Program.csproj" />
+    <ProjectReference Include="..\..\external\Smithbox\src\Smithbox.Program\Smithbox.Program.csproj" />
   </ItemGroup>
 
   <ItemGroup>
-    <Content Include="..\..\..\external\Smithbox\src\Smithbox.Data\Assets\**\*"
+    <Content Include="..\..\external\Smithbox\src\Smithbox.Data\Assets\**\*"
              Link="Assets\%(RecursiveDir)%(Filename)%(Extension)"
              CopyToOutputDirectory="PreserveNewest"
              CopyToPublishDirectory="PreserveNewest" />
-    <Content Include="..\..\..\external\Smithbox\LICENSE"
+    <Content Include="..\..\external\Smithbox\LICENSE"
              Link="Licenses\Smithbox-LICENSE.txt"
              CopyToOutputDirectory="PreserveNewest"
              CopyToPublishDirectory="PreserveNewest" />
