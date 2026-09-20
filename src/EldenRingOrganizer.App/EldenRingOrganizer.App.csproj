@@ -23,8 +23,12 @@
   </ItemGroup>
 
   <ItemGroup>
-    <Content Include="..\..\external\Smithbox\src\Smithbox.Data\Assets\**\*"
-             Link="Assets\%(RecursiveDir)%(Filename)%(Extension)"
+    <Content Include="..\..\external\Smithbox\src\Smithbox.Data\Assets\PARAM\ER\**\*"
+             Link="Assets\PARAM\ER\%(RecursiveDir)%(Filename)%(Extension)"
+             CopyToOutputDirectory="PreserveNewest"
+             CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="..\..\external\Smithbox\src\Smithbox.Data\Assets\Localization\**\*"
+             Link="Assets\Localization\%(RecursiveDir)%(Filename)%(Extension)"
              CopyToOutputDirectory="PreserveNewest"
              CopyToPublishDirectory="PreserveNewest" />
     <Content Include="..\..\external\Smithbox\LICENSE"
