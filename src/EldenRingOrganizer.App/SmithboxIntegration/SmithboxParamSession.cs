@@ -123,7 +123,7 @@ public sealed class SmithboxParamSession : IDisposable
 
             Startup.Setup();
             CFG.Setup();
-            UI.Setup();
+            StudioCore.Application.UI.Setup();
 
             CFG.Current.ParamEditor_Import_Language = "English";
             CFG.Current.ParamEditor_Annotation_Language = "English";
@@ -141,7 +141,7 @@ public sealed class SmithboxParamSession : IDisposable
             _loggerFactory = LoggerFactory.Create(_ => { });
             Smithbox.SbLoggerFactory = _loggerFactory;
             Smithbox.SbLogger = _loggerFactory.CreateLogger<Smithbox>();
-            Util.Logging.LoggerFactory = _loggerFactory;
+            SoulsFormats.Util.Logging.LoggerFactory = _loggerFactory;
             Andre.Core.AndreLogging.LoggerFactory = _loggerFactory;
 
             BinaryReaderEx.CurrentProjectType = "ER";
