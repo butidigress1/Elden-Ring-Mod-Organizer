@@ -536,7 +536,7 @@ public sealed class OrganizerShell : IDisposable
         ImGui.InputTextMultiline(
             "##readonlyFilePreview",
             ref _filePreviewText,
-            (uint)Math.Max(1, _filePreviewText.Length + 1),
+            StudioCore.Interface.GUI.GetTextInputBuffer(_filePreviewText),
             new Vector2(-1, -1),
             ImGuiInputTextFlags.ReadOnly);
     }
