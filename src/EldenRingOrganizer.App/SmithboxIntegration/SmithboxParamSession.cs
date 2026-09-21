@@ -69,31 +69,14 @@ public sealed class SmithboxParamSession : IDisposable
 
             try
             {
-                project.SetupDLLs();
-                cancellationToken.ThrowIfCancellationRequested();
+                var loaded = await project.Init(
+                    _ => { },
+                    true,
+                    ProjectInitType.ProjectDefined);
 
-                project.VFS = new ProjectVFS(project);
-                project.Handler = new ProjectEditorHandler(project);
-                project.VFS.Initialize();
-
-                cancellationToken.ThrowIfCancellationRequested();
-
-                project.Handler.ParamData = new ParamData(project);
-                var paramsLoaded = await project.Handler.ParamData.Setup();
-
-                if (!paramsLoaded)
+                if (!loaded)
                 {
-                    throw new InvalidOperationException("Smithbox ParamData setup did not complete successfully.");
-                }
-
-                cancellationToken.ThrowIfCancellationRequested();
-
-                project.Handler.TextData = new TextData(project);
-                var textLoaded = await project.Handler.TextData.Setup();
-
-                if (!textLoaded)
-                {
-                    throw new InvalidOperationException("Smithbox TextData setup did not complete successfully.");
+                    throw new InvalidOperationException("Smithbox project initialization did not complete successfully.");
                 }
 
                 cancellationToken.ThrowIfCancellationRequested();
@@ -109,7 +92,6 @@ public sealed class SmithboxParamSession : IDisposable
                     CFG.Current.ParamEditor_Import_Language);
 
                 project.Handler.ParamData.RefreshAllParamDiffCaches(false);
-                project.Handler.TextEditor = new TextEditorScreen(project);
 
                 if (project.Handler.ParamData.PrimaryBank.Params.Count == 0)
                 {
