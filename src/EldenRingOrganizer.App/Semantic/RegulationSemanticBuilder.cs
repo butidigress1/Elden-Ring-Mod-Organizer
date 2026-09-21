@@ -1,0 +1,294 @@
+using Andre.Formats;
+using StudioCore.Editors.ParamEditor;
+
+namespace EldenRingOrganizer.Semantic;
+
+public static class RegulationSemanticBuilder
+{
+    public static RegulationIndex Build(
+        ParamBank primaryBank,
+        ParamBank vanillaBank,
+        string sourceName,
+        string sourceRegulationPath,
+        string vanillaRegulationPath)
+    {
+        var source = FileFingerprint.Create(sourceRegulationPath);
+        var vanillaSource = FileFingerprint.Create(vanillaRegulationPath);
+
+        return new RegulationIndex
+        {
+            CreatedAtUtc = DateTime.UtcNow,
+            Document = BuildDocument(primaryBank, sourceName, source),
+            Delta = BuildDelta(primaryBank, vanillaBank, source, vanillaSource)
+        };
+    }
+
+    private static RegulationDocument BuildDocument(
+        ParamBank bank,
+        string sourceName,
+        FileFingerprint source)
+    {
+        var parameters = new List<RegulationParam>(bank.Params.Count);
+
+        foreach (var pair in bank.Params.OrderBy(x => x.Key, StringComparer.Ordinal))
+        {
+            var paramName = pair.Key;
+            var param = pair.Value;
+            var rows = new List<RegulationRow>(param.Rows.Count);
+            var occurrences = new Dictionary<int, int>();
+
+            for (var rowIndex = 0; rowIndex < param.Rows.Count; rowIndex++)
+            {
+                var row = param.Rows[rowIndex];
+                occurrences.TryGetValue(row.ID, out var occurrence);
+                occurrences[row.ID] = occurrence + 1;
+
+                var fields = new List<RegulationField>(param.Columns.Count);
+
+                for (var fieldIndex = 0; fieldIndex < param.Columns.Count; fieldIndex++)
+                {
+                    var column = param.Columns[fieldIndex];
+                    var value = column.GetValue(row);
+                    fields.Add(new RegulationField
+                    {
+                        InternalName = column.Def.InternalName,
+                        FieldType = column.ValueType.FullName ?? column.ValueType.Name,
+                        FieldIndex = fieldIndex,
+                        Value = RegulationValue.FromObject(value, column.ValueType)
+                    });
+                }
+
+                rows.Add(new RegulationRow
+                {
+                    Id = row.ID,
+                    Name = row.Name,
+                    RowIndex = rowIndex,
+                    Occurrence = occurrence,
+                    Fields = fields
+                });
+            }
+
+            parameters.Add(new RegulationParam
+            {
+                Name = paramName,
+                ParamType = param.AppliedParamdef?.ParamType,
+                Rows = rows
+            });
+        }
+
+        return new RegulationDocument
+        {
+            SourceName = sourceName,
+            Source = source,
+            RegulationVersion = bank.ParamVersion,
+            RegulationVersionDisplay = ParamUtils.ParseRegulationVersion(bank.ParamVersion),
+            Params = parameters
+        };
+    }
+
+    private static RegulationDelta BuildDelta(
+        ParamBank primaryBank,
+        ParamBank vanillaBank,
+        FileFingerprint source,
+        FileFingerprint vanillaSource)
+    {
+        var deltas = new List<RegulationParamDelta>();
+        var paramNames = primaryBank.Params.Keys
+            .Union(vanillaBank.Params.Keys, StringComparer.Ordinal)
+            .OrderBy(x => x, StringComparer.Ordinal);
+
+        foreach (var paramName in paramNames)
+        {
+            primaryBank.Params.TryGetValue(paramName, out var primaryParam);
+            vanillaBank.Params.TryGetValue(paramName, out var vanillaParam);
+
+            var rowDeltas = BuildRowDeltas(primaryParam, vanillaParam);
+            if (rowDeltas.Count == 0)
+            {
+                continue;
+            }
+
+            deltas.Add(new RegulationParamDelta
+            {
+                Name = paramName,
+                ParamType = primaryParam?.AppliedParamdef?.ParamType ?? vanillaParam?.AppliedParamdef?.ParamType,
+                Rows = rowDeltas
+            });
+        }
+
+        return new RegulationDelta
+        {
+            ModSource = source,
+            VanillaSource = vanillaSource,
+            ModRegulationVersion = primaryBank.ParamVersion,
+            VanillaRegulationVersion = vanillaBank.ParamVersion,
+            Params = deltas
+        };
+    }
+
+    private static List<RegulationRowDelta> BuildRowDeltas(Param? primaryParam, Param? vanillaParam)
+    {
+        var deltas = new List<RegulationRowDelta>();
+        var primaryGroups = GroupRows(primaryParam);
+        var vanillaGroups = GroupRows(vanillaParam);
+        var ids = primaryGroups.Keys.Union(vanillaGroups.Keys).OrderBy(x => x);
+
+        foreach (var id in ids)
+        {
+            primaryGroups.TryGetValue(id, out var primaryRows);
+            vanillaGroups.TryGetValue(id, out var vanillaRows);
+            primaryRows ??= [];
+            vanillaRows ??= [];
+
+            var count = Math.Max(primaryRows.Count, vanillaRows.Count);
+
+            for (var occurrence = 0; occurrence < count; occurrence++)
+            {
+                var primary = occurrence < primaryRows.Count ? primaryRows[occurrence] : null;
+                var vanilla = occurrence < vanillaRows.Count ? vanillaRows[occurrence] : null;
+
+                if (primary is null && vanilla is not null)
+                {
+                    deltas.Add(BuildRemovedRow(vanillaParam!, vanilla, occurrence));
+                    continue;
+                }
+
+                if (primary is not null && vanilla is null)
+                {
+                    deltas.Add(BuildAddedRow(primaryParam!, primary, occurrence));
+                    continue;
+                }
+
+                if (primary is null || vanilla is null)
+                {
+                    continue;
+                }
+
+                var fields = BuildFieldDeltas(primaryParam!, primary.Row, vanillaParam!, vanilla.Row);
+                var nameChanged = !string.Equals(primary.Row.Name, vanilla.Row.Name, StringComparison.Ordinal);
+
+                if (fields.Count == 0 && !nameChanged)
+                {
+                    continue;
+                }
+
+                deltas.Add(new RegulationRowDelta
+                {
+                    Id = id,
+                    Occurrence = occurrence,
+                    ModRowIndex = primary.Index,
+                    VanillaRowIndex = vanilla.Index,
+                    ModName = primary.Row.Name,
+                    VanillaName = vanilla.Row.Name,
+                    Kind = RegulationRowChangeKind.Modified,
+                    Fields = fields
+                });
+            }
+        }
+
+        return deltas;
+    }
+
+    private static RegulationRowDelta BuildAddedRow(Param param, IndexedRow row, int occurrence)
+    {
+        return new RegulationRowDelta
+        {
+            Id = row.Row.ID,
+            Occurrence = occurrence,
+            ModRowIndex = row.Index,
+            ModName = row.Row.Name,
+            Kind = RegulationRowChangeKind.Added,
+            Fields = param.Columns.Select(column => new RegulationFieldDelta
+            {
+                InternalName = column.Def.InternalName,
+                FieldType = column.ValueType.FullName ?? column.ValueType.Name,
+                ModValue = RegulationValue.FromObject(column.GetValue(row.Row), column.ValueType)
+            }).ToList()
+        };
+    }
+
+    private static RegulationRowDelta BuildRemovedRow(Param param, IndexedRow row, int occurrence)
+    {
+        return new RegulationRowDelta
+        {
+            Id = row.Row.ID,
+            Occurrence = occurrence,
+            VanillaRowIndex = row.Index,
+            VanillaName = row.Row.Name,
+            Kind = RegulationRowChangeKind.Removed,
+            Fields = param.Columns.Select(column => new RegulationFieldDelta
+            {
+                InternalName = column.Def.InternalName,
+                FieldType = column.ValueType.FullName ?? column.ValueType.Name,
+                VanillaValue = RegulationValue.FromObject(column.GetValue(row.Row), column.ValueType)
+            }).ToList()
+        };
+    }
+
+    private static List<RegulationFieldDelta> BuildFieldDeltas(
+        Param primaryParam,
+        Param.Row primaryRow,
+        Param vanillaParam,
+        Param.Row vanillaRow)
+    {
+        var fields = new List<RegulationFieldDelta>();
+        var primaryColumns = primaryParam.Columns.ToDictionary(x => x.Def.InternalName, StringComparer.Ordinal);
+        var vanillaColumns = vanillaParam.Columns.ToDictionary(x => x.Def.InternalName, StringComparer.Ordinal);
+        var names = primaryColumns.Keys.Union(vanillaColumns.Keys, StringComparer.Ordinal);
+
+        foreach (var name in names)
+        {
+            primaryColumns.TryGetValue(name, out var primaryColumn);
+            vanillaColumns.TryGetValue(name, out var vanillaColumn);
+
+            var primaryValue = primaryColumn is null
+                ? null
+                : RegulationValue.FromObject(primaryColumn.GetValue(primaryRow), primaryColumn.ValueType);
+            var vanillaValue = vanillaColumn is null
+                ? null
+                : RegulationValue.FromObject(vanillaColumn.GetValue(vanillaRow), vanillaColumn.ValueType);
+
+            if (Equals(primaryValue, vanillaValue))
+            {
+                continue;
+            }
+
+            var type = primaryColumn?.ValueType ?? vanillaColumn?.ValueType ?? typeof(object);
+
+            fields.Add(new RegulationFieldDelta
+            {
+                InternalName = name,
+                FieldType = type.FullName ?? type.Name,
+                VanillaValue = vanillaValue,
+                ModValue = primaryValue
+            });
+        }
+
+        return fields;
+    }
+
+    private static Dictionary<int, List<IndexedRow>> GroupRows(Param? param)
+    {
+        var result = new Dictionary<int, List<IndexedRow>>();
+        if (param is null)
+        {
+            return result;
+        }
+
+        for (var index = 0; index < param.Rows.Count; index++)
+        {
+            var row = param.Rows[index];
+            if (!result.TryGetValue(row.ID, out var rows))
+            {
+                rows = [];
+                result[row.ID] = rows;
+            }
+
+            rows.Add(new IndexedRow(index, row));
+        }
+
+        return result;
+    }
+
+    private sealed record IndexedRow(int Index, Param.Row Row);
+}
