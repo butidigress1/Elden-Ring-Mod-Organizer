@@ -16,6 +16,7 @@
     <PackageReference Include="Hexa.NET.ImGui.Backends.GLFW" Version="1.0.18" />
     <PackageReference Include="Silk.NET.Direct3D11" Version="2.22.0" />
     <PackageReference Include="Silk.NET.DXGI" Version="2.22.0" />
+    <PackageReference Include="SharpCompress" Version="0.50.4" />
   </ItemGroup>
 
   <ItemGroup>
