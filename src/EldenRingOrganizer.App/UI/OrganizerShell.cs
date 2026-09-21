@@ -425,20 +425,43 @@ public sealed class OrganizerShell : IDisposable
 
         ImGui.BeginChild("InstalledFileList", new Vector2(listWidth, 0), ImGuiChildFlags.Borders);
 
-        foreach (var file in files)
+        const ImGuiTableFlags fileTableFlags =
+            ImGuiTableFlags.RowBg |
+            ImGuiTableFlags.BordersInnerV |
+            ImGuiTableFlags.Resizable |
+            ImGuiTableFlags.ScrollY |
+            ImGuiTableFlags.SizingStretchProp;
+
+        if (ImGui.BeginTable("InstalledFilesTable", 2, fileTableFlags))
         {
-            var relative = Path.GetRelativePath(_selectedMod.RootPath, file.FullName);
-            var selected = string.Equals(_selectedFilePath, file.FullName, StringComparison.OrdinalIgnoreCase);
+            ImGui.TableSetupScrollFreeze(0, 1);
+            ImGui.TableSetupColumn("File", ImGuiTableColumnFlags.WidthStretch, 1.0f);
+            ImGui.TableSetupColumn("Size", ImGuiTableColumnFlags.WidthFixed, 80f);
+            ImGui.TableHeadersRow();
 
-            if (ImGui.Selectable($"{relative}##installed_file_{relative}", selected))
+            foreach (var file in files)
             {
-                SelectFilePreview(file);
+                var relative = Path.GetRelativePath(_selectedMod.RootPath, file.FullName);
+                var selected = string.Equals(_selectedFilePath, file.FullName, StringComparison.OrdinalIgnoreCase);
+
+                ImGui.TableNextRow();
+                ImGui.TableSetColumnIndex(0);
+
+                if (ImGui.Selectable($"{relative}##installed_file_{relative}", selected))
+                {
+                    SelectFilePreview(file);
+                }
+
+                if (ImGui.IsItemHovered())
+                {
+                    ImGui.SetTooltip(relative);
+                }
+
+                ImGui.TableSetColumnIndex(1);
+                ImGui.TextDisabled(FormatBytes(file.Length));
             }
 
-            if (ImGui.IsItemHovered())
-            {
-                ImGui.SetTooltip($"{relative}\n{FormatBytes(file.Length)}");
-            }
+            ImGui.EndTable();
         }
 
         ImGui.EndChild();
