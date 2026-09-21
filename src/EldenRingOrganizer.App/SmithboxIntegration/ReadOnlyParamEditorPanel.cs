@@ -240,7 +240,14 @@ public sealed class ReadOnlyParamEditorPanel
             }
 
             ImGui.TableSetColumnIndex(1);
-            if (changed)
+            if (changed && CFG.Current.ParamEditor_Field_List_Display_Modified_Field_Bg)
+            {
+                ImGui.TableSetBgColor(
+                    ImGuiTableBgTarget.CellBg,
+                    ImGui.ColorConvertFloat4ToU32(StudioCore.Application.UI.Current.ParamDiffBackgroundColor));
+                ImGui.TextUnformatted(FormatValue(primaryValue));
+            }
+            else if (changed)
             {
                 ImGui.TextColored(StudioCore.Application.UI.Current.ImGui_PrimaryChanged_Text, FormatValue(primaryValue));
             }
