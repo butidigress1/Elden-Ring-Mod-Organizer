@@ -3,7 +3,7 @@ name: build-windows
 on:
   workflow_dispatch:
   push:
-    branches: [ main, ero-0.1d ]
+    branches: [ main, ero-0.1d, ero-0.1e-semantic-index ]
 
 concurrency:
   group: build-windows-${{ github.ref }}
@@ -92,7 +92,7 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: EldenRingOrganizer-0.1D-ModInspect-win-x64
+          name: EldenRingOrganizer-0.1E-SemanticIndex-win-x64
           path: artifacts/EldenRingOrganizer
           if-no-files-found: error
           include-hidden-files: true
