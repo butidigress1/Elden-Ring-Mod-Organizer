@@ -13,6 +13,9 @@ public sealed class ReadOnlyParamEditorPanel
     private string _paramSearch = "";
     private string _rowSearch = "";
     private string _fieldSearch = "";
+    private bool _paramChangedOnly;
+    private bool _fieldChangedOnly;
+    private ComparisonFilter _rowFilter = ComparisonFilter.All;
     private string? _selectedParamName;
     private Param.Row? _selectedRow;
 
@@ -22,6 +25,9 @@ public sealed class ReadOnlyParamEditorPanel
         _paramSearch = "";
         _rowSearch = "";
         _fieldSearch = "";
+        _paramChangedOnly = false;
+        _fieldChangedOnly = false;
+        _rowFilter = ComparisonFilter.All;
         _selectedParamName = null;
         _selectedRow = null;
 
@@ -70,7 +76,8 @@ public sealed class ReadOnlyParamEditorPanel
     {
         ImGui.Text("PARAMs");
         ImGui.SetNextItemWidth(-1);
-        ImGui.InputTextWithHint("##paramFilter", "Search PARAMs", ref _paramSearch, 256);
+        ImGui.InputTextWithHint("##paramFilter", "Search internal or community name", ref _paramSearch, 256);
+        ImGui.Checkbox("Changed only##paramChangedOnly", ref _paramChangedOnly);
         ImGui.Separator();
 
         foreach (var pair in _session!.PrimaryBank.Params.OrderBy(x => x.Key, StringComparer.OrdinalIgnoreCase))
@@ -87,6 +94,11 @@ public sealed class ReadOnlyParamEditorPanel
 
             var changed = _session.PrimaryBank.VanillaDiffCache.TryGetValue(internalName, out var changedRows)
                 && changedRows.Count > 0;
+
+            if (_paramChangedOnly && !changed)
+            {
+                continue;
+            }
 
             if (changed)
             {
@@ -122,6 +134,7 @@ public sealed class ReadOnlyParamEditorPanel
         ImGui.Text(_selectedParamName is null ? "Rows" : $"Rows — {_selectedParamName}");
         ImGui.SetNextItemWidth(-1);
         ImGui.InputTextWithHint("##rowFilter", "Search ID or row name", ref _rowSearch, 256);
+        RenderComparisonFilter();
         ImGui.Separator();
 
         if (_selectedParamName is null || !_session!.PrimaryBank.Params.TryGetValue(_selectedParamName, out var param))
@@ -131,6 +144,7 @@ public sealed class ReadOnlyParamEditorPanel
         }
 
         _session.PrimaryBank.VanillaDiffCache.TryGetValue(_selectedParamName, out var diffRows);
+        _session.VanillaBank.Params.TryGetValue(_selectedParamName, out var vanillaParam);
 
         for (var i = 0; i < param.Rows.Count; i++)
         {
@@ -143,13 +157,26 @@ public sealed class ReadOnlyParamEditorPanel
                 continue;
             }
 
-            var changed = diffRows?.Contains(row) == true;
+            var vanillaRow = vanillaParam is null ? null : FindMatchingVanillaRow(param, vanillaParam, row);
+            var state = vanillaRow is null
+                ? ComparisonState.Added
+                : diffRows?.Contains(row) == true
+                    ? ComparisonState.Modified
+                    : ComparisonState.Unchanged;
+
+            if (!_rowFilter.Matches(state))
+            {
+                continue;
+            }
+
+            var changed = state is not ComparisonState.Unchanged;
             if (changed)
             {
                 ImGui.PushStyleColor(ImGuiCol.Text, StudioCore.Application.UI.Current.ImGui_PrimaryChanged_Text);
             }
 
-            if (ImGui.Selectable($"{labelText}##row_{i}", ReferenceEquals(_selectedRow, row)))
+            var prefix = state is ComparisonState.Added ? "[NEW] " : "";
+            if (ImGui.Selectable($"{prefix}{labelText}##row_{i}", ReferenceEquals(_selectedRow, row)))
             {
                 _selectedRow = row;
                 _fieldSearch = "";
@@ -159,6 +186,11 @@ public sealed class ReadOnlyParamEditorPanel
             {
                 ImGui.PopStyleColor();
             }
+
+            if (state is ComparisonState.Added && ImGui.IsItemHovered())
+            {
+                ImGui.SetTooltip("This row exists in the selected mod but not in Vanilla Game Data.");
+            }
         }
     }
 
@@ -166,7 +198,8 @@ public sealed class ReadOnlyParamEditorPanel
     {
         ImGui.Text("Fields");
         ImGui.SetNextItemWidth(-1);
-        ImGui.InputTextWithHint("##fieldFilter", "Search fields", ref _fieldSearch, 256);
+        ImGui.InputTextWithHint("##fieldFilter", "Search internal or community field name", ref _fieldSearch, 256);
+        ImGui.Checkbox("Changed only##fieldChangedOnly", ref _fieldChangedOnly);
         ImGui.Separator();
 
         if (_selectedParamName is null ||
@@ -179,6 +212,15 @@ public sealed class ReadOnlyParamEditorPanel
 
         _session.VanillaBank.Params.TryGetValue(_selectedParamName, out var vanillaParam);
         var vanillaRow = vanillaParam is null ? null : FindMatchingVanillaRow(primaryParam, vanillaParam, _selectedRow);
+        var rowIsAdded = vanillaRow is null;
+
+        if (rowIsAdded)
+        {
+            ImGui.TextColored(
+                StudioCore.Application.UI.Current.ImGui_PrimaryChanged_Text,
+                "NEW ROW — no vanilla counterpart");
+            ImGui.Separator();
+        }
 
         var annotation = primaryParam.AppliedParamdef?.ParamType is string paramType
             ? _session.Data.GetParamAnnotations(paramType)
@@ -228,7 +270,12 @@ public sealed class ReadOnlyParamEditorPanel
                 }
             }
 
-            var changed = ValuesDiffer(primaryValue, vanillaValue, column.ValueType);
+            var changed = rowIsAdded || ValuesDiffer(primaryValue, vanillaValue, column.ValueType);
+
+            if (_fieldChangedOnly && !changed)
+            {
+                continue;
+            }
 
             ImGui.TableNextRow();
             ImGui.TableSetColumnIndex(0);
@@ -268,6 +315,68 @@ public sealed class ReadOnlyParamEditorPanel
         }
 
         ImGui.EndTable();
+    }
+
+    private void RenderComparisonFilter()
+    {
+        RenderFilterChoice("All", ComparisonFilter.All);
+        ImGui.SameLine();
+        RenderFilterChoice("Changed", ComparisonFilter.Changed);
+        ImGui.SameLine();
+        RenderFilterChoice("Added", ComparisonFilter.Added);
+        ImGui.SameLine();
+        RenderFilterChoice("Unchanged", ComparisonFilter.Unchanged);
+    }
+
+    private void RenderFilterChoice(string label, ComparisonFilter filter)
+    {
+        if (ImGui.Selectable($"{label}##rowState_{label}", _rowFilter == filter))
+        {
+            _rowFilter = filter;
+            if (_selectedRow is not null)
+            {
+                EnsureSelectedRowVisible();
+            }
+        }
+    }
+
+    private void EnsureSelectedRowVisible()
+    {
+        if (_session is null ||
+            _selectedParamName is null ||
+            !_session.PrimaryBank.Params.TryGetValue(_selectedParamName, out var primaryParam) ||
+            !_session.VanillaBank.Params.TryGetValue(_selectedParamName, out var vanillaParam))
+        {
+            return;
+        }
+
+        _session.PrimaryBank.VanillaDiffCache.TryGetValue(_selectedParamName, out var diffRows);
+
+        if (_selectedRow is not null)
+        {
+            var vanillaRow = FindMatchingVanillaRow(primaryParam, vanillaParam, _selectedRow);
+            var state = vanillaRow is null
+                ? ComparisonState.Added
+                : diffRows?.Contains(_selectedRow) == true
+                    ? ComparisonState.Modified
+                    : ComparisonState.Unchanged;
+
+            if (_rowFilter.Matches(state))
+            {
+                return;
+            }
+        }
+
+        _selectedRow = primaryParam.Rows.FirstOrDefault(row =>
+        {
+            var vanillaRow = FindMatchingVanillaRow(primaryParam, vanillaParam, row);
+            var state = vanillaRow is null
+                ? ComparisonState.Added
+                : diffRows?.Contains(row) == true
+                    ? ComparisonState.Modified
+                    : ComparisonState.Unchanged;
+            return _rowFilter.Matches(state);
+        });
     }
 
     private string GetParamDisplayName(string internalName, Param param)
@@ -351,10 +460,11 @@ public sealed class ReadOnlyParamEditorPanel
                text.Contains(filter, StringComparison.OrdinalIgnoreCase);
     }
 
-    private static string FormatValue(object value)
+    private static string FormatValue(object? value)
     {
         return value switch
         {
+            null => "—",
             byte[] bytes => bytes.Length <= 32
                 ? Convert.ToHexString(bytes)
                 : $"{Convert.ToHexString(bytes.AsSpan(0, 32))}… ({bytes.Length} bytes)",
