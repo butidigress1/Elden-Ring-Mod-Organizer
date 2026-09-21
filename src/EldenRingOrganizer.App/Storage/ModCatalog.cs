@@ -151,29 +151,61 @@ public sealed class ModCatalog
 
     private static string FindProjectRoot(string extractedRoot)
     {
-        var current = extractedRoot;
+        var candidates = new List<(string Path, int Depth, int Score)>();
+        var queue = new Queue<(string Path, int Depth)>();
+        queue.Enqueue((extractedRoot, 0));
 
-        while (true)
+        while (queue.Count > 0)
         {
-            var files = Directory.EnumerateFiles(current).ToArray();
-            var directories = Directory.EnumerateDirectories(current).ToArray();
+            var (current, depth) = queue.Dequeue();
 
-            if (files.Length == 0 && directories.Length == 1)
+            if (LooksLikeGameDataRoot(current))
             {
-                current = directories[0];
+                candidates.Add((current, depth, ScoreGameDataRoot(current)));
+            }
+
+            if (depth >= 4)
+            {
                 continue;
             }
 
-            var modDirectory = directories.FirstOrDefault(x =>
-                string.Equals(Path.GetFileName(x), "mod", StringComparison.OrdinalIgnoreCase));
-
-            if (modDirectory is not null && LooksLikeGameDataRoot(modDirectory))
+            foreach (var directory in Directory.EnumerateDirectories(current))
             {
-                return modDirectory;
+                var name = Path.GetFileName(directory);
+                if (string.Equals(name, ".smithbox", StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                queue.Enqueue((directory, depth + 1));
+            }
+        }
+
+        if (candidates.Count == 0)
+        {
+            return extractedRoot;
+        }
+
+        var bestDepth = candidates.Min(x => x.Depth);
+        var atBestDepth = candidates.Where(x => x.Depth == bestDepth).ToArray();
+        var bestScore = atBestDepth.Max(x => x.Score);
+        var best = atBestDepth.Where(x => x.Score == bestScore).ToArray();
+
+        if (best.Length > 1)
+        {
+            var modNamed = best.Where(x =>
+                string.Equals(Path.GetFileName(x.Path), "mod", StringComparison.OrdinalIgnoreCase)).ToArray();
+
+            if (modNamed.Length == 1)
+            {
+                return modNamed[0].Path;
             }
 
-            return current;
+            throw new InvalidDataException(
+                "The archive contains multiple possible Elden Ring mod roots. Repack it with one mod root and install again.");
         }
+
+        return best[0].Path;
     }
 
     private static bool LooksLikeGameDataRoot(string root)
@@ -184,6 +216,26 @@ public sealed class ModCatalog
                Directory.Exists(Path.Combine(root, "chr")) ||
                Directory.Exists(Path.Combine(root, "map")) ||
                Directory.Exists(Path.Combine(root, "menu"));
+    }
+
+    private static int ScoreGameDataRoot(string root)
+    {
+        var score = 0;
+
+        if (File.Exists(Path.Combine(root, "regulation.bin")))
+        {
+            score += 8;
+        }
+
+        foreach (var folder in new[] { "msg", "parts", "chr", "map", "menu", "asset", "sfx", "event" })
+        {
+            if (Directory.Exists(Path.Combine(root, folder)))
+            {
+                score++;
+            }
+        }
+
+        return score;
     }
 
     private static void CopyDirectory(string source, string destination)
