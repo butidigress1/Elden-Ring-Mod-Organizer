@@ -152,6 +152,7 @@ public sealed class RegulationDocument
 public sealed class RegulationParam
 {
     public required string Name { get; init; }
+    public string? DisplayName { get; init; }
     public string? ParamType { get; init; }
     public required List<RegulationRow> Rows { get; init; }
 }
@@ -168,6 +169,8 @@ public sealed class RegulationRow
 public sealed class RegulationField
 {
     public required string InternalName { get; init; }
+    public string? CommunityName { get; init; }
+    public string? Description { get; init; }
     public required string FieldType { get; init; }
     public required int FieldIndex { get; init; }
     public required RegulationValue Value { get; init; }
@@ -192,6 +195,7 @@ public sealed class RegulationDelta
 public sealed class RegulationParamDelta
 {
     public required string Name { get; init; }
+    public string? DisplayName { get; init; }
     public string? ParamType { get; init; }
     public required List<RegulationRowDelta> Rows { get; init; }
 }
@@ -211,6 +215,8 @@ public sealed class RegulationRowDelta
 public sealed class RegulationFieldDelta
 {
     public required string InternalName { get; init; }
+    public string? CommunityName { get; init; }
+    public string? Description { get; init; }
     public required string FieldType { get; init; }
     public RegulationValue? VanillaValue { get; init; }
     public RegulationValue? ModValue { get; init; }
