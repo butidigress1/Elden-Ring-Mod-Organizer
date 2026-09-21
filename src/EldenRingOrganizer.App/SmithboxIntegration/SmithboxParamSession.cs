@@ -69,15 +69,37 @@ public sealed class SmithboxParamSession : IDisposable
 
             try
             {
-                var loaded = await project.Init(
-                    _ => { },
-                    true,
-                    ProjectInitType.ProjectDefined);
+                project.SetupDLLs();
+                cancellationToken.ThrowIfCancellationRequested();
 
-                if (!loaded)
+                project.VFS = new ProjectVFS(project);
+                project.Locator = new ProjectFileLocator(project);
+                project.Handler = new ProjectEditorHandler(project);
+
+                project.VFS.Initialize();
+                await project.Locator.Initialize(_ => { }, true);
+
+                cancellationToken.ThrowIfCancellationRequested();
+
+                project.Handler.ParamData = new ParamData(project);
+                var paramsLoaded = await project.Handler.ParamData.Setup();
+
+                if (!paramsLoaded)
                 {
-                    throw new InvalidOperationException("Smithbox project initialization did not complete successfully.");
+                    throw new InvalidOperationException("Smithbox ParamData setup did not complete successfully.");
                 }
+
+                cancellationToken.ThrowIfCancellationRequested();
+
+                project.Handler.TextData = new TextData(project);
+                var textLoaded = await project.Handler.TextData.Setup();
+
+                if (!textLoaded)
+                {
+                    throw new InvalidOperationException("Smithbox TextData setup did not complete successfully.");
+                }
+
+                project.Handler.TextEditor = new TextEditorScreen(project);
 
                 cancellationToken.ThrowIfCancellationRequested();
 
