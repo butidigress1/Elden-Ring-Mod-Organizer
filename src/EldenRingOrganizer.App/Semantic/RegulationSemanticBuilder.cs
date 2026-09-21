@@ -6,24 +6,26 @@ namespace EldenRingOrganizer.Semantic;
 public static class RegulationSemanticBuilder
 {
     public static RegulationIndex Build(
-        ParamBank primaryBank,
-        ParamBank vanillaBank,
+        ParamData data,
         string sourceName,
         string sourceRegulationPath,
         string vanillaRegulationPath)
     {
+        var primaryBank = data.PrimaryBank;
+        var vanillaBank = data.VanillaBank;
         var source = FileFingerprint.Create(sourceRegulationPath);
         var vanillaSource = FileFingerprint.Create(vanillaRegulationPath);
 
         return new RegulationIndex
         {
             CreatedAtUtc = DateTime.UtcNow,
-            Document = BuildDocument(primaryBank, sourceName, source),
-            Delta = BuildDelta(primaryBank, vanillaBank, source, vanillaSource)
+            Document = BuildDocument(data, primaryBank, sourceName, source),
+            Delta = BuildDelta(data, primaryBank, vanillaBank, source, vanillaSource)
         };
     }
 
     private static RegulationDocument BuildDocument(
+        ParamData data,
         ParamBank bank,
         string sourceName,
         FileFingerprint source)
@@ -34,6 +36,10 @@ public static class RegulationSemanticBuilder
         {
             var paramName = pair.Key;
             var param = pair.Value;
+            var displayName = GetParamDisplayName(data, paramName, param);
+            var annotation = param.AppliedParamdef?.ParamType is string paramType
+                ? data.GetParamAnnotations(paramType)
+                : null;
             var rows = new List<RegulationRow>(param.Rows.Count);
             var occurrences = new Dictionary<int, int>();
 
@@ -49,9 +55,14 @@ public static class RegulationSemanticBuilder
                 {
                     var column = param.Columns[fieldIndex];
                     var value = column.GetValue(row);
+                    var fieldAnnotation = annotation is null
+                        ? null
+                        : data.GetFieldAnnotation(annotation, column.Def.InternalName);
                     fields.Add(new RegulationField
                     {
                         InternalName = column.Def.InternalName,
+                        CommunityName = fieldAnnotation?.Name,
+                        Description = fieldAnnotation?.Description,
                         FieldType = column.ValueType.FullName ?? column.ValueType.Name,
                         FieldIndex = fieldIndex,
                         Value = RegulationValue.FromObject(value, column.ValueType)
@@ -71,6 +82,7 @@ public static class RegulationSemanticBuilder
             parameters.Add(new RegulationParam
             {
                 Name = paramName,
+                DisplayName = displayName,
                 ParamType = param.AppliedParamdef?.ParamType,
                 Rows = rows
             });
@@ -87,6 +99,7 @@ public static class RegulationSemanticBuilder
     }
 
     private static RegulationDelta BuildDelta(
+        ParamData data,
         ParamBank primaryBank,
         ParamBank vanillaBank,
         FileFingerprint source,
@@ -102,15 +115,17 @@ public static class RegulationSemanticBuilder
             primaryBank.Params.TryGetValue(paramName, out var primaryParam);
             vanillaBank.Params.TryGetValue(paramName, out var vanillaParam);
 
-            var rowDeltas = BuildRowDeltas(primaryParam, vanillaParam);
+            var rowDeltas = BuildRowDeltas(data, primaryParam, vanillaParam);
             if (rowDeltas.Count == 0)
             {
                 continue;
             }
 
+            var metadataParam = primaryParam ?? vanillaParam!;
             deltas.Add(new RegulationParamDelta
             {
                 Name = paramName,
+                DisplayName = GetParamDisplayName(data, paramName, metadataParam),
                 ParamType = primaryParam?.AppliedParamdef?.ParamType ?? vanillaParam?.AppliedParamdef?.ParamType,
                 Rows = rowDeltas
             });
@@ -126,7 +141,7 @@ public static class RegulationSemanticBuilder
         };
     }
 
-    private static List<RegulationRowDelta> BuildRowDeltas(Param? primaryParam, Param? vanillaParam)
+    private static List<RegulationRowDelta> BuildRowDeltas(ParamData data, Param? primaryParam, Param? vanillaParam)
     {
         var deltas = new List<RegulationRowDelta>();
         var primaryGroups = GroupRows(primaryParam);
@@ -149,13 +164,13 @@ public static class RegulationSemanticBuilder
 
                 if (primary is null && vanilla is not null)
                 {
-                    deltas.Add(BuildRemovedRow(vanillaParam!, vanilla, occurrence));
+                    deltas.Add(BuildRemovedRow(data, vanillaParam!, vanilla, occurrence));
                     continue;
                 }
 
                 if (primary is not null && vanilla is null)
                 {
-                    deltas.Add(BuildAddedRow(primaryParam!, primary, occurrence));
+                    deltas.Add(BuildAddedRow(data, primaryParam!, primary, occurrence));
                     continue;
                 }
 
@@ -164,7 +179,7 @@ public static class RegulationSemanticBuilder
                     continue;
                 }
 
-                var fields = BuildFieldDeltas(primaryParam!, primary.Row, vanillaParam!, vanilla.Row);
+                var fields = BuildFieldDeltas(data, primaryParam!, primary.Row, vanillaParam!, vanilla.Row);
                 var nameChanged = !string.Equals(primary.Row.Name, vanilla.Row.Name, StringComparison.Ordinal);
 
                 if (fields.Count == 0 && !nameChanged)
@@ -189,7 +204,7 @@ public static class RegulationSemanticBuilder
         return deltas;
     }
 
-    private static RegulationRowDelta BuildAddedRow(Param param, IndexedRow row, int occurrence)
+    private static RegulationRowDelta BuildAddedRow(ParamData data, Param param, IndexedRow row, int occurrence)
     {
         return new RegulationRowDelta
         {
@@ -198,16 +213,16 @@ public static class RegulationSemanticBuilder
             ModRowIndex = row.Index,
             ModName = row.Row.Name,
             Kind = RegulationRowChangeKind.Added,
-            Fields = param.Columns.Select(column => new RegulationFieldDelta
-            {
-                InternalName = column.Def.InternalName,
-                FieldType = column.ValueType.FullName ?? column.ValueType.Name,
-                ModValue = RegulationValue.FromObject(column.GetValue(row.Row), column.ValueType)
-            }).ToList()
+            Fields = param.Columns.Select(column => CreateFieldDelta(
+                data,
+                param,
+                column,
+                null,
+                RegulationValue.FromObject(column.GetValue(row.Row), column.ValueType))).ToList()
         };
     }
 
-    private static RegulationRowDelta BuildRemovedRow(Param param, IndexedRow row, int occurrence)
+    private static RegulationRowDelta BuildRemovedRow(ParamData data, Param param, IndexedRow row, int occurrence)
     {
         return new RegulationRowDelta
         {
@@ -216,16 +231,17 @@ public static class RegulationSemanticBuilder
             VanillaRowIndex = row.Index,
             VanillaName = row.Row.Name,
             Kind = RegulationRowChangeKind.Removed,
-            Fields = param.Columns.Select(column => new RegulationFieldDelta
-            {
-                InternalName = column.Def.InternalName,
-                FieldType = column.ValueType.FullName ?? column.ValueType.Name,
-                VanillaValue = RegulationValue.FromObject(column.GetValue(row.Row), column.ValueType)
-            }).ToList()
+            Fields = param.Columns.Select(column => CreateFieldDelta(
+                data,
+                param,
+                column,
+                RegulationValue.FromObject(column.GetValue(row.Row), column.ValueType),
+                null)).ToList()
         };
     }
 
     private static List<RegulationFieldDelta> BuildFieldDeltas(
+        ParamData data,
         Param primaryParam,
         Param.Row primaryRow,
         Param vanillaParam,
@@ -255,16 +271,51 @@ public static class RegulationSemanticBuilder
 
             var type = primaryColumn?.ValueType ?? vanillaColumn?.ValueType ?? typeof(object);
 
-            fields.Add(new RegulationFieldDelta
-            {
-                InternalName = name,
-                FieldType = type.FullName ?? type.Name,
-                VanillaValue = vanillaValue,
-                ModValue = primaryValue
-            });
+            var metadataParam = primaryColumn is not null ? primaryParam : vanillaParam;
+            var metadataColumn = primaryColumn ?? vanillaColumn!;
+            fields.Add(CreateFieldDelta(data, metadataParam, metadataColumn, vanillaValue, primaryValue));
         }
 
         return fields;
+    }
+
+
+    private static RegulationFieldDelta CreateFieldDelta(
+        ParamData data,
+        Param param,
+        Param.Column column,
+        RegulationValue? vanillaValue,
+        RegulationValue? modValue)
+    {
+        var annotation = param.AppliedParamdef?.ParamType is string paramType
+            ? data.GetParamAnnotations(paramType)
+            : null;
+        var fieldAnnotation = annotation is null
+            ? null
+            : data.GetFieldAnnotation(annotation, column.Def.InternalName);
+
+        return new RegulationFieldDelta
+        {
+            InternalName = column.Def.InternalName,
+            CommunityName = fieldAnnotation?.Name,
+            Description = fieldAnnotation?.Description,
+            FieldType = column.ValueType.FullName ?? column.ValueType.Name,
+            VanillaValue = vanillaValue,
+            ModValue = modValue
+        };
+    }
+
+    private static string GetParamDisplayName(ParamData data, string internalName, Param param)
+    {
+        if (param.AppliedParamdef is null)
+        {
+            return internalName;
+        }
+
+        var meta = data.GetParamMeta(param.AppliedParamdef);
+        var match = meta?.DisplayNames.FirstOrDefault(x =>
+            string.Equals(x.Param, internalName, StringComparison.Ordinal));
+        return string.IsNullOrWhiteSpace(match?.Name) ? internalName : match.Name;
     }
 
     private static Dictionary<int, List<IndexedRow>> GroupRows(Param? param)
