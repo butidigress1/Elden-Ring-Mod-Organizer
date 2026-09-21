@@ -1,4 +1,5 @@
-using System.IO.Compression;
+using SharpCompress.Archives;
+using SharpCompress.Common;
 using System.Text.Json;
 
 namespace EldenRingOrganizer.Storage;
@@ -6,6 +7,7 @@ namespace EldenRingOrganizer.Storage;
 public sealed class ModCatalog
 {
     private const string ManifestName = "ero.mod.json";
+    private const string StagingPrefix = ".installing-";
     private readonly string _modsRoot;
     private readonly string _cacheRoot;
     private readonly JsonSerializerOptions _jsonOptions = new() { WriteIndented = true };
@@ -19,8 +21,10 @@ public sealed class ModCatalog
     public IReadOnlyList<InstalledMod> Refresh()
     {
         Directory.CreateDirectory(_modsRoot);
+        CleanupAbandonedStaging();
 
         return Directory.EnumerateDirectories(_modsRoot)
+            .Where(path => !Path.GetFileName(path).StartsWith(StagingPrefix, StringComparison.OrdinalIgnoreCase))
             .Select(ReadMod)
             .Where(x => x is not null)
             .Cast<InstalledMod>()
@@ -28,24 +32,31 @@ public sealed class ModCatalog
             .ToArray();
     }
 
-    public InstalledMod InstallZip(string archivePath)
+    public InstalledMod InstallArchive(string archivePath)
     {
         if (!File.Exists(archivePath))
         {
             throw new FileNotFoundException("The selected mod archive does not exist.", archivePath);
         }
 
-        var tempRoot = Path.Combine(_cacheRoot, "install", Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(tempRoot);
+        Directory.CreateDirectory(_modsRoot);
+
+        var installId = Guid.NewGuid().ToString("N");
+        var tempRoot = Path.Combine(_cacheRoot, "install", installId);
+        var extractRoot = Path.Combine(tempRoot, "extract");
+        var stageRoot = Path.Combine(_modsRoot, $"{StagingPrefix}{installId}");
+
+        Directory.CreateDirectory(extractRoot);
 
         try
         {
-            ZipFile.ExtractToDirectory(archivePath, tempRoot);
-            var sourceRoot = FindProjectRoot(tempRoot);
+            ExtractArchive(archivePath, extractRoot);
+
+            var sourceRoot = FindProjectRoot(extractRoot);
             var name = SanitizeName(Path.GetFileNameWithoutExtension(archivePath));
             var targetRoot = GetUniqueTarget(name);
 
-            CopyDirectory(sourceRoot, targetRoot);
+            CopyDirectory(sourceRoot, stageRoot);
 
             var manifest = new ModManifest
             {
@@ -55,16 +66,25 @@ public sealed class ModCatalog
                 InstalledAtUtc = DateTime.UtcNow
             };
 
-            SaveManifest(targetRoot, manifest);
+            SaveManifest(stageRoot, manifest);
+
+            Directory.Move(stageRoot, targetRoot);
             return ToInstalledMod(targetRoot, manifest);
+        }
+        catch
+        {
+            DeleteDirectoryBestEffort(stageRoot);
+            throw;
         }
         finally
         {
-            if (Directory.Exists(tempRoot))
-            {
-                Directory.Delete(tempRoot, true);
-            }
+            DeleteDirectoryBestEffort(tempRoot);
         }
+    }
+
+    public InstalledMod InstallZip(string archivePath)
+    {
+        return InstallArchive(archivePath);
     }
 
     public void SetEnabled(InstalledMod mod, bool enabled)
@@ -80,6 +100,28 @@ public sealed class ModCatalog
         manifest.Enabled = enabled;
         SaveManifest(mod.RootPath, manifest);
         mod.Enabled = enabled;
+    }
+
+    private static void ExtractArchive(string archivePath, string destination)
+    {
+        try
+        {
+            using var archive = ArchiveFactory.OpenArchive(archivePath);
+            archive.WriteToDirectory(
+                destination,
+                new ExtractionOptions
+                {
+                    ExtractFullPath = true,
+                    Overwrite = false,
+                    CheckCrc = true
+                });
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            throw new InvalidDataException(
+                $"Could not extract '{Path.GetFileName(archivePath)}'. The archive may be damaged, encrypted, incomplete, or unsupported.",
+                ex);
+        }
     }
 
     private InstalledMod? ReadMod(string root)
@@ -126,6 +168,7 @@ public sealed class ModCatalog
 
     private void SaveManifest(string root, ModManifest manifest)
     {
+        Directory.CreateDirectory(root);
         File.WriteAllText(
             Path.Combine(root, ManifestName),
             JsonSerializer.Serialize(manifest, _jsonOptions));
@@ -183,7 +226,7 @@ public sealed class ModCatalog
 
         if (candidates.Count == 0)
         {
-            return extractedRoot;
+            return CollapseSingleWrapperDirectories(extractedRoot);
         }
 
         var bestDepth = candidates.Min(x => x.Depth);
@@ -202,10 +245,28 @@ public sealed class ModCatalog
             }
 
             throw new InvalidDataException(
-                "The archive contains multiple possible Elden Ring mod roots. Repack it with one mod root and install again.");
+                "The archive contains multiple possible Elden Ring mod roots. ERO will not guess which one to install.");
         }
 
         return best[0].Path;
+    }
+
+    private static string CollapseSingleWrapperDirectories(string root)
+    {
+        var current = root;
+
+        while (true)
+        {
+            var files = Directory.EnumerateFiles(current).ToArray();
+            var directories = Directory.EnumerateDirectories(current).ToArray();
+
+            if (files.Length != 0 || directories.Length != 1)
+            {
+                return current;
+            }
+
+            current = directories[0];
+        }
     }
 
     private static bool LooksLikeGameDataRoot(string root)
@@ -215,7 +276,10 @@ public sealed class ModCatalog
                Directory.Exists(Path.Combine(root, "parts")) ||
                Directory.Exists(Path.Combine(root, "chr")) ||
                Directory.Exists(Path.Combine(root, "map")) ||
-               Directory.Exists(Path.Combine(root, "menu"));
+               Directory.Exists(Path.Combine(root, "menu")) ||
+               Directory.Exists(Path.Combine(root, "asset")) ||
+               Directory.Exists(Path.Combine(root, "sfx")) ||
+               Directory.Exists(Path.Combine(root, "event"));
     }
 
     private static int ScoreGameDataRoot(string root)
@@ -254,6 +318,30 @@ public sealed class ModCatalog
             var target = Path.Combine(destination, relative);
             Directory.CreateDirectory(Path.GetDirectoryName(target)!);
             File.Copy(file, target, false);
+        }
+    }
+
+    private void CleanupAbandonedStaging()
+    {
+        foreach (var path in Directory.EnumerateDirectories(_modsRoot, $"{StagingPrefix}*"))
+        {
+            DeleteDirectoryBestEffort(path);
+        }
+    }
+
+    private static void DeleteDirectoryBestEffort(string path)
+    {
+        if (!Directory.Exists(path))
+        {
+            return;
+        }
+
+        try
+        {
+            Directory.Delete(path, true);
+        }
+        catch
+        {
         }
     }
 
