@@ -39,6 +39,10 @@
              Link="Assets\FMG\Templates\%(RecursiveDir)%(Filename)%(Extension)"
              CopyToOutputDirectory="PreserveNewest"
              CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="..\..\external\Smithbox\src\Smithbox.Data\Assets\File Dictionaries\ER-File-Dictionary.json"
+             Link="Assets\File Dictionaries\ER-File-Dictionary.json"
+             CopyToOutputDirectory="PreserveNewest"
+             CopyToPublishDirectory="PreserveNewest" />
     <Content Include="..\..\external\Smithbox\src\Smithbox.Data\Assets\UXM Dictionaries\EldenRingDictionary.txt"
              Link="Assets\UXM Dictionaries\EldenRingDictionary.txt"
              CopyToOutputDirectory="PreserveNewest"
