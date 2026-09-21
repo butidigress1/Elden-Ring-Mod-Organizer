@@ -334,7 +334,8 @@ public sealed class ReadOnlyTextEditorPanel
         selection.SelectedContainerWrapper = container;
         selection.SelectedContainerKey = 0;
 
-        var first = container.FmgWrappers.OrderBy(x => x.ID).FirstOrDefault();
+        var wrappers = container.FmgWrappers ?? [];
+        var first = wrappers.OrderBy(x => x.ID).FirstOrDefault();
         if (first is not null)
         {
             SelectFmg(first);
@@ -434,7 +435,8 @@ public sealed class ReadOnlyTextEditorPanel
             _session.TextData.VanillaBank.LoadFmgWrappers(container);
         }
 
-        var fmg = container.FmgWrappers.FirstOrDefault(x => x.ID == _selectedFmg.ID);
+        var wrappers = container.FmgWrappers ?? [];
+        var fmg = wrappers.FirstOrDefault(x => x.ID == _selectedFmg.ID);
         if (fmg is null)
         {
             return;
