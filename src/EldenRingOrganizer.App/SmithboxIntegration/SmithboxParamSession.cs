@@ -3,6 +3,7 @@ using SoulsFormats;
 using StudioCore;
 using StudioCore.Application;
 using StudioCore.Editors.ParamEditor;
+using StudioCore.Editors.TextEditor;
 using StudioCore.Interface;
 
 namespace EldenRingOrganizer.SmithboxIntegration;
@@ -13,10 +14,15 @@ public sealed class SmithboxParamSession : IDisposable
     private static bool _runtimeReady;
     private static ILoggerFactory? _loggerFactory;
 
-    private SmithboxParamSession(ProjectEntry project, string sourceName, string? sourceRegulationPath)
+    private SmithboxParamSession(
+        ProjectEntry project,
+        string sourceName,
+        string projectPath,
+        string? sourceRegulationPath)
     {
         Project = project;
         SourceName = sourceName;
+        ProjectPath = projectPath;
         SourceRegulationPath = sourceRegulationPath;
     }
 
@@ -24,7 +30,10 @@ public sealed class SmithboxParamSession : IDisposable
     public ParamData Data => Project.Handler.ParamData;
     public ParamBank PrimaryBank => Data.PrimaryBank;
     public ParamBank VanillaBank => Data.VanillaBank;
+    public TextData TextData => Project.Handler.TextData;
+    public TextEditorView TextView => Project.Handler.TextEditor.ViewHandler.ActiveView;
     public string SourceName { get; }
+    public string ProjectPath { get; }
     public string? SourceRegulationPath { get; }
 
     public static Task<SmithboxParamSession> LoadAsync(
@@ -49,6 +58,7 @@ public sealed class SmithboxParamSession : IDisposable
                 DataPath = gameFolder,
                 ProjectType = ProjectType.ER,
                 EnableParamEditor = true,
+                EnableTextEditor = true,
                 ImportedParamRowNames = true
             };
 
@@ -69,11 +79,21 @@ public sealed class SmithboxParamSession : IDisposable
                 cancellationToken.ThrowIfCancellationRequested();
 
                 project.Handler.ParamData = new ParamData(project);
-                var loaded = await project.Handler.ParamData.Setup();
+                var paramsLoaded = await project.Handler.ParamData.Setup();
 
-                if (!loaded)
+                if (!paramsLoaded)
                 {
                     throw new InvalidOperationException("Smithbox ParamData setup did not complete successfully.");
+                }
+
+                cancellationToken.ThrowIfCancellationRequested();
+
+                project.Handler.TextData = new TextData(project);
+                var textLoaded = await project.Handler.TextData.Setup();
+
+                if (!textLoaded)
+                {
+                    throw new InvalidOperationException("Smithbox TextData setup did not complete successfully.");
                 }
 
                 cancellationToken.ThrowIfCancellationRequested();
@@ -89,6 +109,7 @@ public sealed class SmithboxParamSession : IDisposable
                     CFG.Current.ParamEditor_Import_Language);
 
                 project.Handler.ParamData.RefreshAllParamDiffCaches(false);
+                project.Handler.TextEditor = new TextEditorScreen(project);
 
                 if (project.Handler.ParamData.PrimaryBank.Params.Count == 0)
                 {
@@ -100,7 +121,17 @@ public sealed class SmithboxParamSession : IDisposable
                     throw new InvalidOperationException("Smithbox loaded no PARAMs from the vanilla baseline.");
                 }
 
-                return new SmithboxParamSession(project, sourceName, sourceRegulationPath);
+                if (project.Handler.TextData.PrimaryBank.Containers.Count == 0)
+                {
+                    throw new InvalidOperationException("Smithbox loaded no FMG text containers from the selected source.");
+                }
+
+                if (project.Handler.TextData.VanillaBank.Containers.Count == 0)
+                {
+                    throw new InvalidOperationException("Smithbox loaded no FMG text containers from the vanilla baseline.");
+                }
+
+                return new SmithboxParamSession(project, sourceName, projectPath, sourceRegulationPath);
             }
             catch
             {
@@ -134,6 +165,8 @@ public sealed class SmithboxParamSession : IDisposable
             CFG.Current.ParamEditor_Field_List_Display_Modified_Field_Bg = true;
             CFG.Current.ParamEditor_Row_List_Display_Modified_Row_Bg = true;
             CFG.Current.Project_VFS_Prefer_Loose_Files = false;
+            CFG.Current.TextEditor_Primary_Category = TextContainerCategory.English;
+            CFG.Current.TextEditor_Include_Vanilla_Cache = true;
 
             LOC.Setup();
             LOC.Load();
