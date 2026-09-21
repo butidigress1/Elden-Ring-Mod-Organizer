@@ -31,6 +31,10 @@
              Link="Assets\Localization\%(RecursiveDir)%(Filename)%(Extension)"
              CopyToOutputDirectory="PreserveNewest"
              CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="..\..\external\Smithbox\src\Smithbox.Data\Assets\UXM Dictionaries\EldenRingDictionary.txt"
+             Link="Assets\UXM Dictionaries\EldenRingDictionary.txt"
+             CopyToOutputDirectory="PreserveNewest"
+             CopyToPublishDirectory="PreserveNewest" />
     <Content Include="..\..\external\Smithbox\LICENSE"
              Link="Licenses\Smithbox-LICENSE.txt"
              CopyToOutputDirectory="PreserveNewest"
