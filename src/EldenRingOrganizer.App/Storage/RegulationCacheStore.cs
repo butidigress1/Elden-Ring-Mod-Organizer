@@ -46,7 +46,11 @@ public sealed class RegulationCacheStore
         {
             var index = Read(cachePath);
             if (index.SchemaVersion != RegulationIndex.CurrentSchemaVersion ||
-                index.Document.SchemaVersion != RegulationDocument.CurrentSchemaVersion)
+                index.Document.SchemaVersion != RegulationDocument.CurrentSchemaVersion ||
+                !string.Equals(
+                    index.ParserRevision,
+                    RegulationIndex.CurrentParserRevision,
+                    StringComparison.Ordinal))
             {
                 return null;
             }
