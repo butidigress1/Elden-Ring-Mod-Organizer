@@ -1,4 +1,5 @@
 using EldenRingOrganizer.Configuration;
+using EldenRingOrganizer.Semantic;
 using EldenRingOrganizer.SmithboxIntegration;
 using EldenRingOrganizer.Storage;
 using Hexa.NET.ImGui;
@@ -13,7 +14,9 @@ public sealed class OrganizerShell : IDisposable
     private readonly SettingsStore _settingsStore;
     private readonly AppSettings _settings;
     private readonly ModCatalog _modCatalog;
-    private readonly ReadOnlyParamEditorPanel _paramPanel = new();
+    private readonly RegulationCacheStore _regulationCache;
+    private readonly RegulationIndexerClient _regulationIndexer;
+    private readonly SemanticParamEditorPanel _paramPanel = new();
     private readonly ReadOnlyTextEditorPanel _textPanel = new();
     private IReadOnlyList<InstalledMod> _mods = [];
     private GameInstallation? _installation;
@@ -21,6 +24,9 @@ public sealed class OrganizerShell : IDisposable
     private SmithboxParamSession? _dataSession;
     private Task<SmithboxParamSession>? _dataLoadTask;
     private Task<InstalledMod>? _modInstallTask;
+    private Task<RegulationIndexResult>? _regulationIndexTask;
+    private string? _regulationIndexTarget;
+    private RegulationIndex? _regulationIndex;
     private bool _autoLoadAttempted;
     private string _fileSearch = "";
     private string? _selectedFilePath;
@@ -36,6 +42,8 @@ public sealed class OrganizerShell : IDisposable
         _settingsStore = new SettingsStore(_paths.Settings);
         _settings = _settingsStore.Load();
         _modCatalog = new ModCatalog(_paths.Mods, _paths.Cache);
+        _regulationCache = new RegulationCacheStore(_paths.Cache);
+        _regulationIndexer = new RegulationIndexerClient(_regulationCache);
         _mods = _modCatalog.Refresh();
 
         if (!string.IsNullOrWhiteSpace(_settings.GameFolder) && Directory.Exists(_settings.GameFolder))
@@ -79,6 +87,7 @@ public sealed class OrganizerShell : IDisposable
     public void Render()
     {
         PollModInstall();
+        PollRegulationIndex();
         PollDataLoad();
 
         var viewport = ImGui.GetMainViewport();
@@ -274,22 +283,53 @@ public sealed class OrganizerShell : IDisposable
 
     private void DrawParams()
     {
-        if (!PrepareDataInspector())
+        if (_installation?.IsValid != true)
         {
+            ImGui.TextDisabled("Configure the Elden Ring Game folder first.");
             return;
         }
 
-        DrawReloadButton();
+        if (_selectedMod is null)
+        {
+            ImGui.Text("Vanilla Game Data");
+            ImGui.Separator();
+            ImGui.TextDisabled("Vanilla is the immutable comparison baseline. Select an installed regulation mod to inspect its semantic delta.");
+            return;
+        }
+
+        if (!_selectedMod.HasRegulation)
+        {
+            ImGui.TextDisabled("This mod does not contain regulation.bin.");
+            return;
+        }
+
+        if (_regulationIndexTask is not null)
+        {
+            ImGui.Text($"Indexing {_selectedMod.Name} in an isolated process...");
+            ImGui.TextDisabled("The installed mod is already committed. Indexing failure cannot roll back or corrupt the installation.");
+            return;
+        }
+
+        if (_regulationIndex is null)
+        {
+            ImGui.TextDisabled("No current semantic regulation cache is available.");
+
+            if (ImGui.Button("Build Semantic Index"))
+            {
+                StartRegulationIndex(false);
+            }
+
+            return;
+        }
+
+        if (ImGui.Button("Reindex"))
+        {
+            StartRegulationIndex(true);
+        }
+
         ImGui.SameLine();
-        ImGui.TextDisabled("Read-only. Smithbox PARAM data is compared against Vanilla Game Data.");
+        ImGui.TextDisabled("Read-only ERO semantic document. Changed content is shown by default.");
         ImGui.Separator();
-
-        if (_dataLoadTask is not null || _modInstallTask is not null)
-        {
-            DrawLoadingState();
-            return;
-        }
-
         _paramPanel.Render();
     }
 
@@ -585,7 +625,7 @@ public sealed class OrganizerShell : IDisposable
             : new Vector4(0.63f, 0.67f, 0.73f, 1f);
         ImGui.TextColored(color, _status);
         ImGui.SameLine();
-        ImGui.TextDisabled($"   0.1D Mod Inspection   |   {_paths.Root}");
+        ImGui.TextDisabled($"   0.1E Semantic Index   |   {_paths.Root}");
     }
 
     private void PickGameFolder()
@@ -676,16 +716,21 @@ public sealed class OrganizerShell : IDisposable
             _fileSearch = "";
             ResetFilePreview();
             ResetDataSession();
-            _autoLoadAttempted = true;
+            ResetRegulationIndex();
+            _autoLoadAttempted = false;
 
-            if (_installation?.IsValid == true)
+            if (_installation?.IsValid == true && _selectedMod.HasRegulation)
             {
-                StartCurrentSourceLoad();
-                _status = $"Installed {installed.Name}. Loading its Smithbox PARAM and FMG comparison.";
+                StartRegulationIndex(false);
+                _status = $"Installed {installed.Name}. Building its semantic regulation index in an isolated process.";
+            }
+            else if (_installation?.IsValid == true)
+            {
+                _status = $"Installed {installed.Name}. No regulation.bin requires indexing.";
             }
             else
             {
-                _status = $"Installed {installed.Name}. Configure the Elden Ring Game folder to inspect it against vanilla.";
+                _status = $"Installed {installed.Name}. Configure the Elden Ring Game folder to build vanilla-relative semantic indexes.";
             }
 
             _statusIsError = false;
@@ -704,12 +749,8 @@ public sealed class OrganizerShell : IDisposable
         _fileSearch = "";
         ResetFilePreview();
         ResetDataSession();
-        _autoLoadAttempted = true;
-
-        if (_installation?.IsValid == true)
-        {
-            StartCurrentSourceLoad();
-        }
+        ResetRegulationIndex();
+        _autoLoadAttempted = false;
     }
 
     private void SelectMod(InstalledMod mod)
@@ -718,11 +759,12 @@ public sealed class OrganizerShell : IDisposable
         _fileSearch = "";
         ResetFilePreview();
         ResetDataSession();
-        _autoLoadAttempted = true;
+        ResetRegulationIndex();
+        _autoLoadAttempted = false;
 
-        if (_installation?.IsValid == true)
+        if (_installation?.IsValid == true && mod.HasRegulation)
         {
-            StartCurrentSourceLoad();
+            StartRegulationIndex(false);
         }
     }
 
@@ -774,7 +816,6 @@ public sealed class OrganizerShell : IDisposable
             var session = completed.GetAwaiter().GetResult();
             var previous = _dataSession;
             _dataSession = session;
-            _paramPanel.SetSession(session);
             _textPanel.SetSession(session);
             previous?.Dispose();
 
@@ -790,10 +831,81 @@ public sealed class OrganizerShell : IDisposable
 
     private void ResetDataSession()
     {
-        _paramPanel.SetSession(null);
         _textPanel.SetSession(null);
         _dataSession?.Dispose();
         _dataSession = null;
+    }
+
+    private void StartRegulationIndex(bool force)
+    {
+        if (_installation?.IsValid != true ||
+            _selectedMod is null ||
+            !_selectedMod.HasRegulation ||
+            _regulationIndexTask is not null)
+        {
+            return;
+        }
+
+        var mod = _selectedMod;
+        _regulationIndexTarget = mod.RootPath;
+        _regulationIndex = null;
+        _paramPanel.SetIndex(null);
+        _status = force
+            ? $"Reindexing {mod.Name} in an isolated process..."
+            : $"Indexing {mod.Name} in an isolated process...";
+        _statusIsError = false;
+        _regulationIndexTask = _regulationIndexer.GetOrBuildAsync(
+            mod,
+            _installation.Folder,
+            force);
+    }
+
+    private void PollRegulationIndex()
+    {
+        if (_regulationIndexTask is not { IsCompleted: true } completed)
+        {
+            return;
+        }
+
+        _regulationIndexTask = null;
+        var target = _regulationIndexTarget;
+        _regulationIndexTarget = null;
+
+        try
+        {
+            var result = completed.GetAwaiter().GetResult();
+
+            if (_selectedMod is null ||
+                !string.Equals(_selectedMod.RootPath, target, StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
+
+            _regulationIndex = result.Index;
+            _paramPanel.SetIndex(result.Index);
+            var changedParams = result.Index.Delta.Params.Count;
+            _status = result.FromCache
+                ? $"Loaded cached semantic index for {_selectedMod.Name}: {changedParams} changed PARAMs."
+                : $"Indexed {_selectedMod.Name}: {changedParams} changed PARAMs cached against vanilla.";
+            _statusIsError = false;
+        }
+        catch (Exception ex)
+        {
+            if (_selectedMod is not null &&
+                string.Equals(_selectedMod.RootPath, target, StringComparison.OrdinalIgnoreCase))
+            {
+                _regulationIndex = null;
+                _paramPanel.SetIndex(null);
+                _status = $"{_selectedMod.Name} remains installed. Semantic indexing failed: {GetRootMessage(ex)}";
+                _statusIsError = true;
+            }
+        }
+    }
+
+    private void ResetRegulationIndex()
+    {
+        _regulationIndex = null;
+        _paramPanel.SetIndex(null);
     }
 
     private string GetSelectedSourceName()
