@@ -19,6 +19,8 @@ public static class Program
     [STAThread]
     public static unsafe void Main()
     {
+        Directory.SetCurrentDirectory(AppContext.BaseDirectory);
+
         try
         {
             Run();
