@@ -108,7 +108,7 @@ public sealed class ReadOnlyTextEditorPanel
             ? "FMGs"
             : $"FMGs — {_selectedContainer.GetContainerDisplayName()}");
         ImGui.SetNextItemWidth(-1);
-        ImGui.InputTextWithHint("##fmgFilter", "Search FMG name or ID", ref _fmgSearch, 256);
+        ImGui.InputTextWithHint("##fmgFilter", "Search grouped FMG name or ID", ref _fmgSearch, 256);
         ImGui.Separator();
 
         if (_selectedContainer is null)
@@ -117,12 +117,34 @@ public sealed class ReadOnlyTextEditorPanel
             return;
         }
 
+        var items = GetGroupedFmgItems().ToArray();
+
+        RenderFmgSection("Base Game", items.Where(x => x.DlcGroup == ""));
+        RenderFmgSection("DLC 1", items.Where(x => x.DlcGroup == "DLC 1"));
+        RenderFmgSection("DLC 2", items.Where(x => x.DlcGroup == "DLC 2"));
+        RenderFmgSection(
+            "Other",
+            items.Where(x => x.DlcGroup is not "" and not "DLC 1" and not "DLC 2"));
+
+        if (items.Length == 0)
+        {
+            ImGui.TextDisabled("No grouped FMGs match this search.");
+        }
+    }
+
+    private IEnumerable<FmgListItem> GetGroupedFmgItems()
+    {
+        if (_session is null || _selectedContainer is null)
+        {
+            yield break;
+        }
+
         var wrappers = _selectedContainer.FmgWrappers ?? [];
 
         foreach (var fmg in wrappers.OrderBy(x => x.ID))
         {
             var displayName = TextUtils.GetFmgDisplayName(
-                _session!.Project,
+                _session.Project,
                 _selectedContainer,
                 fmg.ID,
                 fmg.Name);
@@ -133,17 +155,42 @@ public sealed class ReadOnlyTextEditorPanel
                 fmg.ID,
                 fmg.Name);
 
-            if (!Matches($"{displayName} {fmg.Name} {fmg.ID} {grouping}", _fmgSearch))
+            if (!TextUtils.IsSimpleFmg(grouping))
             {
                 continue;
             }
 
-            var label = string.IsNullOrWhiteSpace(grouping) || grouping == "Unknown"
-                ? displayName
-                : $"{displayName}  [{grouping}]";
+            var dlcGroup = TextUtils.GetFmgDlcGrouping(
+                _session.Project,
+                _selectedContainer,
+                fmg.ID,
+                fmg.Name);
+
+            if (!Matches($"{displayName} {fmg.Name} {fmg.ID} {grouping} {dlcGroup}", _fmgSearch))
+            {
+                continue;
+            }
+
+            yield return new FmgListItem(fmg, displayName, dlcGroup);
+        }
+    }
+
+    private void RenderFmgSection(string header, IEnumerable<FmgListItem> source)
+    {
+        var items = source.ToArray();
+        if (items.Length == 0)
+        {
+            return;
+        }
+
+        ImGui.TextDisabled(header);
+
+        foreach (var item in items)
+        {
+            var fmg = item.Fmg;
 
             if (ImGui.Selectable(
-                    $"{label}##fmg_{fmg.ID}_{fmg.Name}",
+                    $"{item.DisplayName}##fmg_{fmg.ID}_{fmg.Name}",
                     ReferenceEquals(_selectedFmg, fmg)))
             {
                 SelectFmg(fmg);
@@ -154,13 +201,15 @@ public sealed class ReadOnlyTextEditorPanel
                 ImGui.SetTooltip($"{fmg.Name}  |  Binder ID {fmg.ID}");
             }
         }
+
+        ImGui.Spacing();
     }
 
     private void RenderEntriesAndComparison()
     {
         ImGui.Text(_selectedFmg is null ? "Entries" : $"Entries — {_selectedFmg.Name}");
         ImGui.SetNextItemWidth(-1);
-        ImGui.InputTextWithHint("##fmgEntryFilter", "Search entry ID or text", ref _entrySearch, 512);
+        ImGui.InputTextWithHint("##fmgEntryFilter", "Search entry ID/text, modified, unique", ref _entrySearch, 512);
         RenderComparisonFilter();
         ImGui.Separator();
 
@@ -184,7 +233,7 @@ public sealed class ReadOnlyTextEditorPanel
                 continue;
             }
 
-            if (!Matches($"{entry.ID} {entry.Text}", _entrySearch))
+            if (!MatchesEntrySearch(entry, state))
             {
                 continue;
             }
@@ -425,14 +474,16 @@ public sealed class ReadOnlyTextEditorPanel
 
         if (_selectedEntry is not null &&
             _entryFilter.Matches(GetState(_selectedEntry)) &&
-            Matches($"{_selectedEntry.ID} {_selectedEntry.Text}", _entrySearch))
+            MatchesEntrySearch(_selectedEntry, GetState(_selectedEntry)))
         {
             return;
         }
 
         var entry = _selectedFmg.File.Entries.FirstOrDefault(candidate =>
-            _entryFilter.Matches(GetState(candidate)) &&
-            Matches($"{candidate.ID} {candidate.Text}", _entrySearch));
+        {
+            var state = GetState(candidate);
+            return _entryFilter.Matches(state) && MatchesEntrySearch(candidate, state);
+        });
 
         if (entry is not null)
         {
@@ -640,6 +691,30 @@ public sealed class ReadOnlyTextEditorPanel
         }
     }
 
+    private bool MatchesEntrySearch(FMG.Entry entry, ComparisonState state)
+    {
+        var input = _entrySearch.Trim();
+
+        if (input.Equals("modified", StringComparison.OrdinalIgnoreCase))
+        {
+            return state is not ComparisonState.Unchanged;
+        }
+
+        if (input.Equals("!modified", StringComparison.OrdinalIgnoreCase))
+        {
+            return state is ComparisonState.Unchanged;
+        }
+
+        if (input.Equals("unique", StringComparison.OrdinalIgnoreCase) ||
+            input.Equals("added", StringComparison.OrdinalIgnoreCase) ||
+            input.Equals("new", StringComparison.OrdinalIgnoreCase))
+        {
+            return state is ComparisonState.Added;
+        }
+
+        return Matches($"{entry.ID} {entry.Text}", _entrySearch);
+    }
+
     private static bool Matches(string text, string filter)
     {
         return string.IsNullOrWhiteSpace(filter) ||
@@ -656,6 +731,11 @@ public sealed class ReadOnlyTextEditorPanel
         var preview = text.Replace("\r", " ").Replace("\n", " ").Trim();
         return preview.Length <= 80 ? preview : $"{preview[..77]}...";
     }
+
+    private sealed record FmgListItem(
+        TextFmgWrapper Fmg,
+        string DisplayName,
+        string DlcGroup);
 
     private sealed record TextPart(
         string Label,
