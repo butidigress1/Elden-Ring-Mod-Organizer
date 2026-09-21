@@ -65,6 +65,15 @@ public sealed class RegulationCacheStore
         }
     }
 
+    public void Delete(InstalledMod mod)
+    {
+        var path = GetCachePath(mod);
+        if (File.Exists(path))
+        {
+            File.Delete(path);
+        }
+    }
+
     public RegulationIndex Read(string path)
     {
         using var file = File.OpenRead(path);
