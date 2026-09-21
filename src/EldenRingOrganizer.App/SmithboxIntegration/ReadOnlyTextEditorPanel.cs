@@ -381,7 +381,8 @@ public sealed class ReadOnlyTextEditorPanel
             return ComparisonState.Unchanged;
         }
 
-        if (_session.TextView.DifferenceManager.IsUniqueToProject(entry))
+        if (FindVanillaEntry(entry.ID) is null ||
+            _session.TextView.DifferenceManager.IsUniqueToProject(entry))
         {
             return ComparisonState.Added;
         }
