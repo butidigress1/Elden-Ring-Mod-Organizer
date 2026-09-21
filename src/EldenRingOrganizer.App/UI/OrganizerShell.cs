@@ -20,6 +20,7 @@ public sealed class OrganizerShell : IDisposable
     private InstalledMod? _selectedMod;
     private SmithboxParamSession? _dataSession;
     private Task<SmithboxParamSession>? _dataLoadTask;
+    private Task<InstalledMod>? _modInstallTask;
     private bool _autoLoadAttempted;
     private string _fileSearch = "";
     private string _status = "Ready";
@@ -74,6 +75,7 @@ public sealed class OrganizerShell : IDisposable
 
     public void Render()
     {
+        PollModInstall();
         PollDataLoad();
 
         var viewport = ImGui.GetMainViewport();
@@ -101,7 +103,7 @@ public sealed class OrganizerShell : IDisposable
 
     private void DrawTopBar()
     {
-        if (_dataLoadTask is not null)
+        if (_dataLoadTask is not null || _modInstallTask is not null)
         {
             ImGui.BeginDisabled();
         }
@@ -111,7 +113,7 @@ public sealed class OrganizerShell : IDisposable
             PickModArchive();
         }
 
-        if (_dataLoadTask is not null)
+        if (_dataLoadTask is not null || _modInstallTask is not null)
         {
             ImGui.EndDisabled();
         }
@@ -216,7 +218,7 @@ public sealed class OrganizerShell : IDisposable
         if (_mods.Count == 0)
         {
             ImGui.Spacing();
-            ImGui.TextDisabled("Install a ZIP mod archive to add an isolated source.");
+            ImGui.TextDisabled("Install a ZIP, 7z, or RAR mod archive to add an isolated source.");
         }
 
         ImGui.EndChild();
@@ -279,7 +281,7 @@ public sealed class OrganizerShell : IDisposable
         ImGui.TextDisabled("Read-only. Smithbox PARAM data is compared against Vanilla Game Data.");
         ImGui.Separator();
 
-        if (_dataLoadTask is not null)
+        if (_dataLoadTask is not null || _modInstallTask is not null)
         {
             DrawLoadingState();
             return;
@@ -300,7 +302,7 @@ public sealed class OrganizerShell : IDisposable
         ImGui.TextDisabled("Read-only. Smithbox TextData and vanilla FMG comparison are active.");
         ImGui.Separator();
 
-        if (_dataLoadTask is not null)
+        if (_dataLoadTask is not null || _modInstallTask is not null)
         {
             DrawLoadingState();
             return;
@@ -328,7 +330,7 @@ public sealed class OrganizerShell : IDisposable
 
     private void DrawReloadButton()
     {
-        if (_dataLoadTask is not null)
+        if (_dataLoadTask is not null || _modInstallTask is not null)
         {
             ImGui.BeginDisabled();
         }
@@ -338,7 +340,7 @@ public sealed class OrganizerShell : IDisposable
             StartCurrentSourceLoad();
         }
 
-        if (_dataLoadTask is not null)
+        if (_dataLoadTask is not null || _modInstallTask is not null)
         {
             ImGui.EndDisabled();
         }
@@ -501,10 +503,15 @@ public sealed class OrganizerShell : IDisposable
 
     private void PickModArchive()
     {
+        if (_modInstallTask is not null)
+        {
+            return;
+        }
+
         using var dialog = new OpenFileDialog
         {
             Title = "Install Elden Ring mod archive",
-            Filter = "ZIP mod archives (*.zip)|*.zip|All files (*.*)|*.*",
+            Filter = "Supported mod archives (*.zip;*.7z;*.rar)|*.zip;*.7z;*.rar|ZIP archives (*.zip)|*.zip|7-Zip archives (*.7z)|*.7z|RAR archives (*.rar)|*.rar|All files (*.*)|*.*",
             CheckFileExists = true,
             Multiselect = false
         };
@@ -514,9 +521,24 @@ public sealed class OrganizerShell : IDisposable
             return;
         }
 
+        var archivePath = dialog.FileName;
+        _status = $"Installing {Path.GetFileName(archivePath)}...";
+        _statusIsError = false;
+        _modInstallTask = Task.Run(() => _modCatalog.InstallArchive(archivePath));
+    }
+
+    private void PollModInstall()
+    {
+        if (_modInstallTask is not { IsCompleted: true } completed)
+        {
+            return;
+        }
+
+        _modInstallTask = null;
+
         try
         {
-            var installed = _modCatalog.InstallZip(dialog.FileName);
+            var installed = completed.GetAwaiter().GetResult();
             _mods = _modCatalog.Refresh();
             _selectedMod = _mods.FirstOrDefault(x =>
                 string.Equals(x.RootPath, installed.RootPath, StringComparison.OrdinalIgnoreCase)) ?? installed;
@@ -538,6 +560,7 @@ public sealed class OrganizerShell : IDisposable
         }
         catch (Exception ex)
         {
+            _mods = _modCatalog.Refresh();
             _status = $"Mod install failed: {GetRootMessage(ex)}";
             _statusIsError = true;
         }
@@ -571,7 +594,7 @@ public sealed class OrganizerShell : IDisposable
 
     private void StartCurrentSourceLoad()
     {
-        if (_installation?.IsValid != true || _dataLoadTask is not null)
+        if (_installation?.IsValid != true || _dataLoadTask is not null || _modInstallTask is not null)
         {
             return;
         }
