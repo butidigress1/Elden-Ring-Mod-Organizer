@@ -76,7 +76,7 @@ public sealed class ReadOnlyParamEditorPanel
     {
         ImGui.Text("PARAMs");
         ImGui.SetNextItemWidth(-1);
-        ImGui.InputTextWithHint("##paramFilter", "Search internal or community name", ref _paramSearch, 256);
+        ImGui.InputTextWithHint("##paramFilter", "Search name or modified", ref _paramSearch, 256);
         ImGui.Checkbox("Changed only##paramChangedOnly", ref _paramChangedOnly);
         ImGui.Separator();
 
@@ -86,14 +86,13 @@ public sealed class ReadOnlyParamEditorPanel
             var param = pair.Value;
             var displayName = GetParamDisplayName(internalName, param);
             var searchText = $"{internalName} {displayName}";
+            var changed = _session.PrimaryBank.VanillaDiffCache.TryGetValue(internalName, out var changedRows)
+                && changedRows.Count > 0;
 
-            if (!Matches(searchText, _paramSearch))
+            if (!MatchesStateSearch(searchText, _paramSearch, changed, false))
             {
                 continue;
             }
-
-            var changed = _session.PrimaryBank.VanillaDiffCache.TryGetValue(internalName, out var changedRows)
-                && changedRows.Count > 0;
 
             if (_paramChangedOnly && !changed)
             {
@@ -133,7 +132,7 @@ public sealed class ReadOnlyParamEditorPanel
     {
         ImGui.Text(_selectedParamName is null ? "Rows" : $"Rows — {_selectedParamName}");
         ImGui.SetNextItemWidth(-1);
-        ImGui.InputTextWithHint("##rowFilter", "Search ID or row name", ref _rowSearch, 256);
+        ImGui.InputTextWithHint("##rowFilter", "Search ID/name, modified, unique", ref _rowSearch, 256);
         RenderComparisonFilter();
         ImGui.Separator();
 
@@ -152,13 +151,16 @@ public sealed class ReadOnlyParamEditorPanel
             var row = param.Rows[i];
             var rowName = string.IsNullOrWhiteSpace(row.Name) ? "(unnamed)" : row.Name;
             var labelText = $"{row.ID}  {rowName}";
+            var state = rowStates[row];
 
-            if (!Matches(labelText, _rowSearch))
+            if (!MatchesStateSearch(
+                    labelText,
+                    _rowSearch,
+                    state is not ComparisonState.Unchanged,
+                    state is ComparisonState.Added))
             {
                 continue;
             }
-
-            var state = rowStates[row];
 
             if (!_rowFilter.Matches(state))
             {
@@ -194,7 +196,7 @@ public sealed class ReadOnlyParamEditorPanel
     {
         ImGui.Text("Fields");
         ImGui.SetNextItemWidth(-1);
-        ImGui.InputTextWithHint("##fieldFilter", "Search internal or community field name", ref _fieldSearch, 256);
+        ImGui.InputTextWithHint("##fieldFilter", "Search field name or modified", ref _fieldSearch, 256);
         ImGui.Checkbox("Changed only##fieldChangedOnly", ref _fieldChangedOnly);
         ImGui.Separator();
 
@@ -249,11 +251,6 @@ public sealed class ReadOnlyParamEditorPanel
                 ? internalName
                 : $"{internalName} ({communityName})";
 
-            if (!Matches($"{internalName} {communityName}", _fieldSearch))
-            {
-                continue;
-            }
-
             var primaryValue = column.GetValue(_selectedRow);
             object? vanillaValue = null;
 
@@ -267,6 +264,15 @@ public sealed class ReadOnlyParamEditorPanel
             }
 
             var changed = rowIsAdded || ValuesDiffer(primaryValue, vanillaValue, column.ValueType);
+
+            if (!MatchesStateSearch(
+                    $"{internalName} {communityName}",
+                    _fieldSearch,
+                    changed,
+                    rowIsAdded))
+            {
+                continue;
+            }
 
             if (_fieldChangedOnly && !changed)
             {
@@ -351,12 +357,26 @@ public sealed class ReadOnlyParamEditorPanel
 
         if (_selectedRow is not null &&
             rowStates.TryGetValue(_selectedRow, out var selectedState) &&
-            _rowFilter.Matches(selectedState))
+            _rowFilter.Matches(selectedState) &&
+            MatchesStateSearch(
+                $"{_selectedRow.ID} {_selectedRow.Name}",
+                _rowSearch,
+                selectedState is not ComparisonState.Unchanged,
+                selectedState is ComparisonState.Added))
         {
             return;
         }
 
-        _selectedRow = primaryParam.Rows.FirstOrDefault(row => _rowFilter.Matches(rowStates[row]));
+        _selectedRow = primaryParam.Rows.FirstOrDefault(row =>
+        {
+            var state = rowStates[row];
+            return _rowFilter.Matches(state) &&
+                   MatchesStateSearch(
+                       $"{row.ID} {row.Name}",
+                       _rowSearch,
+                       state is not ComparisonState.Unchanged,
+                       state is ComparisonState.Added);
+        });
     }
 
     private static Dictionary<Param.Row, ComparisonState> BuildRowStates(
@@ -463,6 +483,34 @@ public sealed class ReadOnlyParamEditorPanel
         var selectedValue = selected;
         var vanillaValue = vanilla;
         return ParamUtils.IsValueDiff(ref selectedValue, ref vanillaValue, type);
+    }
+
+    private static bool MatchesStateSearch(
+        string text,
+        string filter,
+        bool modified,
+        bool unique)
+    {
+        var input = filter.Trim();
+
+        if (input.Equals("modified", StringComparison.OrdinalIgnoreCase))
+        {
+            return modified;
+        }
+
+        if (input.Equals("!modified", StringComparison.OrdinalIgnoreCase))
+        {
+            return !modified;
+        }
+
+        if (input.Equals("unique", StringComparison.OrdinalIgnoreCase) ||
+            input.Equals("added", StringComparison.OrdinalIgnoreCase) ||
+            input.Equals("new", StringComparison.OrdinalIgnoreCase))
+        {
+            return unique;
+        }
+
+        return Matches(text, filter);
     }
 
     private static bool Matches(string text, string filter)
