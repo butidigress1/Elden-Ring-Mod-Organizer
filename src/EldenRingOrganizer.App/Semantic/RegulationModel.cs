@@ -225,8 +225,10 @@ public sealed class RegulationFieldDelta
 public sealed class RegulationIndex
 {
     public const int CurrentSchemaVersion = 1;
+    public const string CurrentParserRevision = "Smithbox-f5969c060cea240476e9dd4d6a64eafa9dbafaab";
 
     public int SchemaVersion { get; init; } = CurrentSchemaVersion;
+    public string ParserRevision { get; init; } = CurrentParserRevision;
     public required DateTime CreatedAtUtc { get; init; }
     public required RegulationDocument Document { get; init; }
     public required RegulationDelta Delta { get; init; }
