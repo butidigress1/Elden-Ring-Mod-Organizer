@@ -9,10 +9,12 @@ public sealed record RegulationIndexResult(RegulationIndex Index, bool FromCache
 public sealed class RegulationIndexerClient
 {
     private readonly RegulationCacheStore _cacheStore;
+    private readonly string _logsRoot;
 
-    public RegulationIndexerClient(RegulationCacheStore cacheStore)
+    public RegulationIndexerClient(RegulationCacheStore cacheStore, string logsRoot)
     {
         _cacheStore = cacheStore;
+        _logsRoot = logsRoot;
     }
 
     public async Task<RegulationIndexResult> GetOrBuildAsync(
@@ -73,7 +75,8 @@ public sealed class RegulationIndexerClient
                     : stdout.Trim()
                 : stderr.Trim();
 
-            throw new InvalidDataException(message);
+            var logPath = WriteFailureLog(mod.Name, process.ExitCode, stdout, stderr);
+            throw new InvalidDataException($"{message} Details: {logPath}");
         }
 
         if (!File.Exists(output))
@@ -82,6 +85,20 @@ public sealed class RegulationIndexerClient
         }
 
         return new RegulationIndexResult(_cacheStore.Read(output), false);
+    }
+
+    private string WriteFailureLog(string modName, int exitCode, string stdout, string stderr)
+    {
+        Directory.CreateDirectory(_logsRoot);
+        var path = Path.Combine(_logsRoot, "semantic-indexer.log");
+        var entry =
+            $"[{DateTime.UtcNow:O}] {modName} | exit {exitCode}{Environment.NewLine}" +
+            $"STDOUT:{Environment.NewLine}{stdout}{Environment.NewLine}" +
+            $"STDERR:{Environment.NewLine}{stderr}{Environment.NewLine}" +
+            new string('-', 72) +
+            Environment.NewLine;
+        File.AppendAllText(path, entry);
+        return path;
     }
 
     private static ProcessStartInfo CreateStartInfo(
