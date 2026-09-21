@@ -15,6 +15,7 @@ public sealed class ReadOnlyTextEditorPanel
     private TextContainerWrapper? _selectedContainer;
     private TextFmgWrapper? _selectedFmg;
     private FMG.Entry? _selectedEntry;
+    private Dictionary<int, FMG.Entry> _vanillaEntries = new();
 
     public void SetSession(SmithboxParamSession? session)
     {
@@ -26,6 +27,7 @@ public sealed class ReadOnlyTextEditorPanel
         _selectedContainer = null;
         _selectedFmg = null;
         _selectedEntry = null;
+        _vanillaEntries = new();
 
         if (session is null)
         {
@@ -323,6 +325,7 @@ public sealed class ReadOnlyTextEditorPanel
         _selectedContainer = container;
         _selectedFmg = null;
         _selectedEntry = null;
+        _vanillaEntries.Clear();
         _fmgSearch = "";
         _entrySearch = "";
 
@@ -348,6 +351,7 @@ public sealed class ReadOnlyTextEditorPanel
         _selectedFmg = fmg;
         _selectedEntry = null;
         _entrySearch = "";
+        RefreshVanillaEntries();
 
         _session.TextView.Selection.SelectFmg(fmg, false);
         _selectedEntry = fmg.File.Entries.FirstOrDefault();
@@ -410,17 +414,19 @@ public sealed class ReadOnlyTextEditorPanel
                 StringComparison.OrdinalIgnoreCase));
     }
 
-    private FMG.Entry? FindVanillaEntry(int id)
+    private void RefreshVanillaEntries()
     {
+        _vanillaEntries.Clear();
+
         if (_session is null || _selectedContainer is null || _selectedFmg is null)
         {
-            return null;
+            return;
         }
 
         var container = FindVanillaContainer(_selectedContainer);
         if (container is null)
         {
-            return null;
+            return;
         }
 
         if (container.FmgWrappers is null || container.FmgWrappers.Count == 0)
@@ -429,7 +435,20 @@ public sealed class ReadOnlyTextEditorPanel
         }
 
         var fmg = container.FmgWrappers.FirstOrDefault(x => x.ID == _selectedFmg.ID);
-        return fmg?.File.Entries.FirstOrDefault(x => x.ID == id);
+        if (fmg is null)
+        {
+            return;
+        }
+
+        foreach (var entry in fmg.File.Entries)
+        {
+            _vanillaEntries[entry.ID] = entry;
+        }
+    }
+
+    private FMG.Entry? FindVanillaEntry(int id)
+    {
+        return _vanillaEntries.TryGetValue(id, out var entry) ? entry : null;
     }
 
     private static bool Matches(string text, string filter)
