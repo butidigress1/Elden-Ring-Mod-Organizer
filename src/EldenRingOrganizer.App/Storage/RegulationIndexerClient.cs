@@ -18,10 +18,11 @@ public sealed class RegulationIndexerClient
     public async Task<RegulationIndexResult> GetOrBuildAsync(
         InstalledMod mod,
         string gameFolder,
+        bool force = false,
         CancellationToken cancellationToken = default)
     {
         var vanillaRegulation = Path.Combine(gameFolder, "regulation.bin");
-        var cached = _cacheStore.TryLoadCurrent(mod, vanillaRegulation);
+        var cached = force ? null : _cacheStore.TryLoadCurrent(mod, vanillaRegulation);
         if (cached is not null)
         {
             return new RegulationIndexResult(cached, true);
@@ -36,6 +37,11 @@ public sealed class RegulationIndexerClient
         if (!File.Exists(vanillaRegulation))
         {
             throw new FileNotFoundException("The configured game folder does not contain regulation.bin.", vanillaRegulation);
+        }
+
+        if (force)
+        {
+            _cacheStore.Delete(mod);
         }
 
         var output = _cacheStore.GetCachePath(mod);
