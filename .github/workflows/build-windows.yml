@@ -70,6 +70,7 @@ jobs:
             "Andre.SoulsFormats.dll",
             "Assets\PARAM\ER",
             "Assets\Localization",
+            "Assets\UXM Dictionaries\EldenRingDictionary.txt",
             "Licenses\Smithbox-LICENSE.txt",
             "glfw3.dll",
             "cimgui.dll"
