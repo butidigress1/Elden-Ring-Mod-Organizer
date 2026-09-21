@@ -44,7 +44,7 @@ public sealed class OrganizerShell : IDisposable
         _settings = _settingsStore.Load();
         _modCatalog = new ModCatalog(_paths.Mods, _paths.Cache);
         _regulationCache = new RegulationCacheStore(_paths.Cache);
-        _regulationIndexer = new RegulationIndexerClient(_regulationCache);
+        _regulationIndexer = new RegulationIndexerClient(_regulationCache, _paths.Logs);
         _mods = _modCatalog.Refresh();
 
         if (!string.IsNullOrWhiteSpace(_settings.GameFolder) && Directory.Exists(_settings.GameFolder))
