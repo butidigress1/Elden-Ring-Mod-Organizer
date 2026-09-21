@@ -145,6 +145,7 @@ public sealed class ReadOnlyParamEditorPanel
 
         _session.PrimaryBank.VanillaDiffCache.TryGetValue(_selectedParamName, out var diffRows);
         _session.VanillaBank.Params.TryGetValue(_selectedParamName, out var vanillaParam);
+        var rowStates = BuildRowStates(param, vanillaParam, diffRows);
 
         for (var i = 0; i < param.Rows.Count; i++)
         {
@@ -157,12 +158,7 @@ public sealed class ReadOnlyParamEditorPanel
                 continue;
             }
 
-            var vanillaRow = vanillaParam is null ? null : FindMatchingVanillaRow(param, vanillaParam, row);
-            var state = vanillaRow is null
-                ? ComparisonState.Added
-                : diffRows?.Contains(row) == true
-                    ? ComparisonState.Modified
-                    : ComparisonState.Unchanged;
+            var state = rowStates[row];
 
             if (!_rowFilter.Matches(state))
             {
@@ -344,39 +340,54 @@ public sealed class ReadOnlyParamEditorPanel
     {
         if (_session is null ||
             _selectedParamName is null ||
-            !_session.PrimaryBank.Params.TryGetValue(_selectedParamName, out var primaryParam) ||
-            !_session.VanillaBank.Params.TryGetValue(_selectedParamName, out var vanillaParam))
+            !_session.PrimaryBank.Params.TryGetValue(_selectedParamName, out var primaryParam))
         {
             return;
         }
 
+        _session.VanillaBank.Params.TryGetValue(_selectedParamName, out var vanillaParam);
         _session.PrimaryBank.VanillaDiffCache.TryGetValue(_selectedParamName, out var diffRows);
+        var rowStates = BuildRowStates(primaryParam, vanillaParam, diffRows);
 
-        if (_selectedRow is not null)
+        if (_selectedRow is not null &&
+            rowStates.TryGetValue(_selectedRow, out var selectedState) &&
+            _rowFilter.Matches(selectedState))
         {
-            var vanillaRow = FindMatchingVanillaRow(primaryParam, vanillaParam, _selectedRow);
-            var state = vanillaRow is null
-                ? ComparisonState.Added
-                : diffRows?.Contains(_selectedRow) == true
-                    ? ComparisonState.Modified
-                    : ComparisonState.Unchanged;
-
-            if (_rowFilter.Matches(state))
-            {
-                return;
-            }
+            return;
         }
 
-        _selectedRow = primaryParam.Rows.FirstOrDefault(row =>
+        _selectedRow = primaryParam.Rows.FirstOrDefault(row => _rowFilter.Matches(rowStates[row]));
+    }
+
+    private static Dictionary<Param.Row, ComparisonState> BuildRowStates(
+        Param primaryParam,
+        Param? vanillaParam,
+        HashSet<Param.Row>? diffRows)
+    {
+        var vanillaCounts = vanillaParam?.Rows
+            .GroupBy(row => row.ID)
+            .ToDictionary(group => group.Key, group => group.Count())
+            ?? new Dictionary<int, int>();
+
+        var seen = new Dictionary<int, int>();
+        var states = new Dictionary<Param.Row, ComparisonState>();
+
+        foreach (var row in primaryParam.Rows)
         {
-            var vanillaRow = FindMatchingVanillaRow(primaryParam, vanillaParam, row);
-            var state = vanillaRow is null
+            seen.TryGetValue(row.ID, out var occurrence);
+            var hasVanilla = vanillaCounts.TryGetValue(row.ID, out var vanillaCount) &&
+                             occurrence < vanillaCount;
+
+            states[row] = !hasVanilla
                 ? ComparisonState.Added
                 : diffRows?.Contains(row) == true
                     ? ComparisonState.Modified
                     : ComparisonState.Unchanged;
-            return _rowFilter.Matches(state);
-        });
+
+            seen[row.ID] = occurrence + 1;
+        }
+
+        return states;
     }
 
     private string GetParamDisplayName(string internalName, Param param)
