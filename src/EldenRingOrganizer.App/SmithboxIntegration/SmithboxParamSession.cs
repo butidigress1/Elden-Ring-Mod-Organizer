@@ -171,6 +171,8 @@ public sealed class SmithboxParamSession : IDisposable
             CFG.Current.Project_VFS_Prefer_Loose_Files = false;
             CFG.Current.TextEditor_Primary_Category = TextContainerCategory.English;
             CFG.Current.TextEditor_Include_Vanilla_Cache = true;
+            CFG.Current.TextEditor_Text_File_List_Grouped_Display = true;
+            CFG.Current.TextEditor_Text_Entry_Enable_Grouped_Entries = true;
 
             LOC.Setup();
             LOC.Load();
