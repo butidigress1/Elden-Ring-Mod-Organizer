@@ -661,8 +661,19 @@ public sealed class OrganizerShell : IDisposable
             _settings.GameFolder = candidate.Folder;
             _settingsStore.Save(_settings);
             ResetDataSession();
+            ResetRegulationIndex();
             _autoLoadAttempted = false;
-            _status = "Game folder saved. Vanilla is the comparison baseline for PARAM and FMG inspection.";
+
+            if (_selectedMod?.HasRegulation == true && _regulationIndexTask is null)
+            {
+                StartRegulationIndex(false);
+                _status = "Game folder saved. Rebuilding the selected mod's semantic index against the new vanilla baseline.";
+            }
+            else
+            {
+                _status = "Game folder saved. Vanilla is the comparison baseline for semantic PARAM and FMG inspection.";
+            }
+
             _statusIsError = false;
         }
         catch (Exception ex)
@@ -819,7 +830,7 @@ public sealed class OrganizerShell : IDisposable
             _textPanel.SetSession(session);
             previous?.Dispose();
 
-            _status = $"{session.SourceName} loaded. PARAM and FMG values are compared against Vanilla Game Data.";
+            _status = $"{session.SourceName} text data loaded for read-only FMG inspection.";
             _statusIsError = false;
         }
         catch (Exception ex)
@@ -878,6 +889,11 @@ public sealed class OrganizerShell : IDisposable
             if (_selectedMod is null ||
                 !string.Equals(_selectedMod.RootPath, target, StringComparison.OrdinalIgnoreCase))
             {
+                if (_selectedMod?.HasRegulation == true && _installation?.IsValid == true)
+                {
+                    StartRegulationIndex(false);
+                }
+
                 return;
             }
 
