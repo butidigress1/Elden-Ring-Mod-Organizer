@@ -269,8 +269,6 @@ public static class RegulationSemanticBuilder
                 continue;
             }
 
-            var type = primaryColumn?.ValueType ?? vanillaColumn?.ValueType ?? typeof(object);
-
             var metadataParam = primaryColumn is not null ? primaryParam : vanillaParam;
             var metadataColumn = primaryColumn ?? vanillaColumn!;
             fields.Add(CreateFieldDelta(data, metadataParam, metadataColumn, vanillaValue, primaryValue));
