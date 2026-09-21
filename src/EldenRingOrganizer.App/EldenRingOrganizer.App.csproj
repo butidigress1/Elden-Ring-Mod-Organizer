@@ -16,6 +16,7 @@
     <PackageReference Include="Hexa.NET.ImGui.Backends.GLFW" Version="1.0.18" />
     <PackageReference Include="Silk.NET.Direct3D11" Version="2.22.0" />
     <PackageReference Include="Silk.NET.DXGI" Version="2.22.0" />
+    <PackageReference Include="SharpCompress" Version="0.50.4" />
   </ItemGroup>
 
   <ItemGroup>
@@ -29,6 +30,18 @@
              CopyToPublishDirectory="PreserveNewest" />
     <Content Include="..\..\external\Smithbox\src\Smithbox.Data\Assets\Localization\**\*"
              Link="Assets\Localization\%(RecursiveDir)%(Filename)%(Extension)"
+             CopyToOutputDirectory="PreserveNewest"
+             CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="..\..\external\Smithbox\src\Smithbox.Data\Assets\FMG\ER\**\*"
+             Link="Assets\FMG\ER\%(RecursiveDir)%(Filename)%(Extension)"
+             CopyToOutputDirectory="PreserveNewest"
+             CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="..\..\external\Smithbox\src\Smithbox.Data\Assets\FMG\Templates\**\*"
+             Link="Assets\FMG\Templates\%(RecursiveDir)%(Filename)%(Extension)"
+             CopyToOutputDirectory="PreserveNewest"
+             CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="..\..\external\Smithbox\src\Smithbox.Data\Assets\File Dictionaries\ER-File-Dictionary.json"
+             Link="Assets\File Dictionaries\ER-File-Dictionary.json"
              CopyToOutputDirectory="PreserveNewest"
              CopyToPublishDirectory="PreserveNewest" />
     <Content Include="..\..\external\Smithbox\src\Smithbox.Data\Assets\UXM Dictionaries\EldenRingDictionary.txt"

@@ -3,7 +3,7 @@ name: build-windows
 on:
   workflow_dispatch:
   push:
-    branches: [ main ]
+    branches: [ main, ero-0.1d ]
 
 concurrency:
   group: build-windows-${{ github.ref }}
@@ -69,6 +69,9 @@ jobs:
             "Andre.Formats.dll",
             "Andre.SoulsFormats.dll",
             "Assets\PARAM\ER",
+            "Assets\FMG\ER\Fmg Descriptor Registry.json",
+            "Assets\FMG\Templates\ER_Infusion.json",
+            "Assets\File Dictionaries\ER-File-Dictionary.json",
             "Assets\Localization",
             "Assets\UXM Dictionaries\EldenRingDictionary.txt",
             "Licenses\Smithbox-LICENSE.txt",
@@ -89,7 +92,7 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: EldenRingOrganizer-0.1C-SmithboxParamView-win-x64
+          name: EldenRingOrganizer-0.1D-ModInspect-win-x64
           path: artifacts/EldenRingOrganizer
           if-no-files-found: error
           include-hidden-files: true

@@ -42,7 +42,7 @@ public static class Program
         GLFW.WindowHint(GLFW.GLFW_FOCUSED, 1);
         GLFW.WindowHint(GLFW.GLFW_RESIZABLE, 1);
 
-        GlfwWindowPtr window = GLFW.CreateWindow(1280, 800, "Elden Ring Organizer — 0.1C C# Rewrite", null, null);
+        GlfwWindowPtr window = GLFW.CreateWindow(1280, 800, "Elden Ring Organizer — 0.1D Mod Inspection", null, null);
         if (window.IsNull)
         {
             GLFW.Terminate();
