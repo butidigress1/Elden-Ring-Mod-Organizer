@@ -26,6 +26,7 @@ public sealed class OrganizerShell : IDisposable
     private Task<InstalledMod>? _modInstallTask;
     private Task<RegulationIndexResult>? _regulationIndexTask;
     private string? _regulationIndexTarget;
+    private string? _regulationIndexTargetGameFolder;
     private RegulationIndex? _regulationIndex;
     private bool _autoLoadAttempted;
     private string _fileSearch = "";
@@ -859,6 +860,7 @@ public sealed class OrganizerShell : IDisposable
 
         var mod = _selectedMod;
         _regulationIndexTarget = mod.RootPath;
+        _regulationIndexTargetGameFolder = _installation.Folder;
         _regulationIndex = null;
         _paramPanel.SetIndex(null);
         _status = force
@@ -880,14 +882,18 @@ public sealed class OrganizerShell : IDisposable
 
         _regulationIndexTask = null;
         var target = _regulationIndexTarget;
+        var targetGameFolder = _regulationIndexTargetGameFolder;
         _regulationIndexTarget = null;
+        _regulationIndexTargetGameFolder = null;
 
         try
         {
             var result = completed.GetAwaiter().GetResult();
 
             if (_selectedMod is null ||
-                !string.Equals(_selectedMod.RootPath, target, StringComparison.OrdinalIgnoreCase))
+                _installation?.IsValid != true ||
+                !string.Equals(_selectedMod.RootPath, target, StringComparison.OrdinalIgnoreCase) ||
+                !string.Equals(_installation.Folder, targetGameFolder, StringComparison.OrdinalIgnoreCase))
             {
                 if (_selectedMod?.HasRegulation == true && _installation?.IsValid == true)
                 {
