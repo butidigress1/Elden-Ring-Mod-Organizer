@@ -93,8 +93,7 @@ public static class SmithboxRegulationIndexBuilder
             }
 
             return RegulationSemanticBuilder.Build(
-                primary,
-                vanilla,
+                project.Handler.ParamData,
                 sourceName,
                 sourceRegulationPath,
                 vanillaRegulationPath);
