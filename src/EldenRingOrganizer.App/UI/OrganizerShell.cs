@@ -23,6 +23,9 @@ public sealed class OrganizerShell : IDisposable
     private Task<InstalledMod>? _modInstallTask;
     private bool _autoLoadAttempted;
     private string _fileSearch = "";
+    private string? _selectedFilePath;
+    private string _filePreviewText = "";
+    private string _filePreviewMessage = "Select a readable text file to preview it here.";
     private string _status = "Ready";
     private bool _statusIsError;
 
@@ -410,27 +413,132 @@ public sealed class OrganizerShell : IDisposable
             .Where(info =>
             {
                 var relative = Path.GetRelativePath(_selectedMod.RootPath, info.FullName);
-                return string.IsNullOrWhiteSpace(_fileSearch) ||
-                       relative.Contains(_fileSearch, StringComparison.OrdinalIgnoreCase);
+                return !string.Equals(relative, "ero.mod.json", StringComparison.OrdinalIgnoreCase) &&
+                       (string.IsNullOrWhiteSpace(_fileSearch) ||
+                        relative.Contains(_fileSearch, StringComparison.OrdinalIgnoreCase));
             })
-            .OrderBy(info => Path.GetRelativePath(_selectedMod.RootPath, info.FullName), StringComparer.OrdinalIgnoreCase);
+            .OrderBy(info => Path.GetRelativePath(_selectedMod.RootPath, info.FullName), StringComparer.OrdinalIgnoreCase)
+            .ToArray();
 
-        ImGui.BeginChild("InstalledFileList", new Vector2(0, 0), ImGuiChildFlags.Borders);
+        var available = ImGui.GetContentRegionAvail();
+        var listWidth = Math.Clamp(available.X * 0.44f, 320f, 620f);
+
+        ImGui.BeginChild("InstalledFileList", new Vector2(listWidth, 0), ImGuiChildFlags.Borders);
 
         foreach (var file in files)
         {
             var relative = Path.GetRelativePath(_selectedMod.RootPath, file.FullName);
-            if (string.Equals(relative, "ero.mod.json", StringComparison.OrdinalIgnoreCase))
+            var selected = string.Equals(_selectedFilePath, file.FullName, StringComparison.OrdinalIgnoreCase);
+
+            if (ImGui.Selectable($"{relative}##installed_file_{relative}", selected))
             {
-                continue;
+                SelectFilePreview(file);
             }
 
-            ImGui.TextUnformatted(relative);
-            ImGui.SameLine();
-            ImGui.TextDisabled(FormatBytes(file.Length));
+            if (ImGui.IsItemHovered())
+            {
+                ImGui.SetTooltip($"{relative}\n{FormatBytes(file.Length)}");
+            }
         }
 
         ImGui.EndChild();
+        ImGui.SameLine();
+
+        ImGui.BeginChild("InstalledFilePreview", new Vector2(0, 0), ImGuiChildFlags.Borders);
+        RenderFilePreview();
+        ImGui.EndChild();
+    }
+
+    private void SelectFilePreview(FileInfo file)
+    {
+        _selectedFilePath = file.FullName;
+        _filePreviewText = "";
+
+        if (!IsReadableTextFile(file.Extension))
+        {
+            _filePreviewMessage = file.Extension.Equals(".dcx", StringComparison.OrdinalIgnoreCase)
+                ? "DCX container browsing is reserved for the native container-browser integration. This build does not unpack it to disk."
+                : "No read-only text preview is available for this file type.";
+            return;
+        }
+
+        try
+        {
+            const int maxChars = 4 * 1024 * 1024;
+            using var stream = new FileStream(
+                file.FullName,
+                FileMode.Open,
+                FileAccess.Read,
+                FileShare.ReadWrite | FileShare.Delete);
+            using var reader = new StreamReader(stream, detectEncodingFromByteOrderMarks: true);
+
+            var buffer = new char[maxChars];
+            var read = reader.ReadBlock(buffer, 0, buffer.Length);
+            _filePreviewText = new string(buffer, 0, read);
+
+            if (!reader.EndOfStream)
+            {
+                _filePreviewText += "\r\n\r\n[Preview truncated after 4 MiB of text.]";
+            }
+
+            _filePreviewMessage = "";
+        }
+        catch (Exception ex)
+        {
+            _filePreviewMessage = $"Could not preview file: {GetRootMessage(ex)}";
+        }
+    }
+
+    private void RenderFilePreview()
+    {
+        ImGui.Text("Read-only Preview");
+        ImGui.Separator();
+
+        if (_selectedFilePath is null)
+        {
+            ImGui.TextDisabled(_filePreviewMessage);
+            return;
+        }
+
+        ImGui.TextWrapped(Path.GetFileName(_selectedFilePath));
+        ImGui.TextDisabled(_selectedFilePath);
+        ImGui.Separator();
+
+        if (!string.IsNullOrWhiteSpace(_filePreviewMessage))
+        {
+            ImGui.TextDisabled(_filePreviewMessage);
+            return;
+        }
+
+        ImGui.InputTextMultiline(
+            "##readonlyFilePreview",
+            ref _filePreviewText,
+            (uint)Math.Max(1, _filePreviewText.Length + 1),
+            new Vector2(-1, -1),
+            ImGuiInputTextFlags.ReadOnly);
+    }
+
+    private static bool IsReadableTextFile(string extension)
+    {
+        return extension.ToLowerInvariant() is
+            ".hks" or
+            ".txt" or
+            ".ini" or
+            ".cfg" or
+            ".json" or
+            ".toml" or
+            ".xml" or
+            ".yaml" or
+            ".yml" or
+            ".md" or
+            ".log";
+    }
+
+    private void ResetFilePreview()
+    {
+        _selectedFilePath = null;
+        _filePreviewText = "";
+        _filePreviewMessage = "Select a readable text file to preview it here.";
     }
 
     private static void DrawSentinel(string name, bool present, bool required)
@@ -543,6 +651,7 @@ public sealed class OrganizerShell : IDisposable
             _selectedMod = _mods.FirstOrDefault(x =>
                 string.Equals(x.RootPath, installed.RootPath, StringComparison.OrdinalIgnoreCase)) ?? installed;
             _fileSearch = "";
+            ResetFilePreview();
             ResetDataSession();
             _autoLoadAttempted = true;
 
@@ -570,6 +679,7 @@ public sealed class OrganizerShell : IDisposable
     {
         _selectedMod = null;
         _fileSearch = "";
+        ResetFilePreview();
         ResetDataSession();
         _autoLoadAttempted = true;
 
@@ -583,6 +693,7 @@ public sealed class OrganizerShell : IDisposable
     {
         _selectedMod = mod;
         _fileSearch = "";
+        ResetFilePreview();
         ResetDataSession();
         _autoLoadAttempted = true;
 
