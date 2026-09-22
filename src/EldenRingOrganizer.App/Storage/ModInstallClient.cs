@@ -28,10 +28,13 @@ public sealed class ModInstallClient
 
         Directory.CreateDirectory(_logsRoot);
         var helperLog = Path.Combine(_logsRoot, "installer-helper.log");
+        var resultRoot = Path.Combine(_cacheRoot, "install-results");
+        Directory.CreateDirectory(resultRoot);
+        var resultPath = Path.Combine(resultRoot, Guid.NewGuid().ToString("N") + ".json");
 
         using var process = new Process
         {
-            StartInfo = CreateStartInfo(archivePath, helperLog)
+            StartInfo = CreateStartInfo(archivePath, helperLog, resultPath)
         };
 
         if (!process.Start())
@@ -47,6 +50,43 @@ public sealed class ModInstallClient
         var stdout = await stdoutTask;
         var stderr = await stderrTask;
 
+        ModInstallHelperResult? result = null;
+
+        if (File.Exists(resultPath))
+        {
+            try
+            {
+                result = JsonSerializer.Deserialize<ModInstallHelperResult>(
+                    File.ReadAllText(resultPath),
+                    new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+            }
+            finally
+            {
+                try
+                {
+                    File.Delete(resultPath);
+                }
+                catch
+                {
+                }
+            }
+        }
+
+        if (result is not null &&
+            !string.IsNullOrWhiteSpace(result.Name) &&
+            !string.IsNullOrWhiteSpace(result.RootPath) &&
+            Directory.Exists(result.RootPath))
+        {
+            return new InstalledMod
+            {
+                Name = result.Name,
+                RootPath = result.RootPath,
+                Enabled = result.Enabled,
+                InstalledFrom = result.InstalledFrom,
+                InstalledAtUtc = result.InstalledAtUtc
+            };
+        }
+
         if (process.ExitCode != 0)
         {
             var detail = string.IsNullOrWhiteSpace(stderr)
@@ -56,29 +96,11 @@ public sealed class ModInstallClient
             throw new InvalidDataException($"{detail} Details: {helperLog}");
         }
 
-        var result = JsonSerializer.Deserialize<ModInstallHelperResult>(
-            stdout.Trim(),
-            new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
-
-        if (result is null ||
-            string.IsNullOrWhiteSpace(result.Name) ||
-            string.IsNullOrWhiteSpace(result.RootPath))
-        {
-            throw new InvalidDataException(
-                $"Installer helper completed without a valid result. Details: {helperLog}");
-        }
-
-        return new InstalledMod
-        {
-            Name = result.Name,
-            RootPath = result.RootPath,
-            Enabled = result.Enabled,
-            InstalledFrom = result.InstalledFrom,
-            InstalledAtUtc = result.InstalledAtUtc
-        };
+        throw new InvalidDataException(
+            $"Installer helper completed without a committed transaction result. Details: {helperLog}");
     }
 
-    private ProcessStartInfo CreateStartInfo(string archivePath, string logPath)
+    private ProcessStartInfo CreateStartInfo(string archivePath, string logPath, string resultPath)
     {
         var executable = Environment.ProcessPath
                          ?? throw new InvalidOperationException("Could not determine the ERO executable path.");
@@ -103,6 +125,7 @@ public sealed class ModInstallClient
         info.ArgumentList.Add(_modsRoot);
         info.ArgumentList.Add(_cacheRoot);
         info.ArgumentList.Add(logPath);
+        info.ArgumentList.Add(resultPath);
 
         return info;
     }
