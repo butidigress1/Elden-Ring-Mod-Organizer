@@ -189,7 +189,7 @@ public sealed class ModCatalog
         }
 
         if (Path.IsPathRooted(path) ||
-            normalized.Contains(':', StringComparison.Ordinal))
+            normalized.Contains(':'))
         {
             throw new InvalidDataException(
                 $"The archive contains an absolute or unsafe path: {path}");
