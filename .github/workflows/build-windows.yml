@@ -59,6 +59,52 @@ jobs:
             New-Item -ItemType Directory -Path "artifacts/EldenRingOrganizer/$_" -Force | Out-Null
           }
 
+      - name: Smoke test isolated mod installer
+        shell: pwsh
+        run: |
+          $root = Join-Path $PWD "artifacts/EldenRingOrganizer"
+          $fixture = Join-Path $PWD "artifacts/install-fixture"
+          $payload = Join-Path $fixture "Example Mod"
+          $archive = Join-Path $PWD "artifacts/example-mod.zip"
+          $mods = Join-Path $PWD "artifacts/test-mods"
+          $cache = Join-Path $PWD "artifacts/test-cache"
+          $logs = Join-Path $PWD "artifacts/test-logs"
+          $log = Join-Path $logs "installer-helper.log"
+          $result = Join-Path $cache "install-result.json"
+
+          New-Item -ItemType Directory -Path $payload -Force | Out-Null
+          New-Item -ItemType Directory -Path (Join-Path $payload "parts") -Force | Out-Null
+          Set-Content -Path (Join-Path $payload "regulation.bin") -Value "synthetic regulation payload"
+          Set-Content -Path (Join-Path $payload "parts/readme.txt") -Value "synthetic loose file"
+
+          Compress-Archive -Path $payload -DestinationPath $archive
+
+          New-Item -ItemType Directory -Path $mods, $cache, $logs -Force | Out-Null
+
+          & (Join-Path $root "EldenRingOrganizer.exe") "--install-mod" $archive $mods $cache $log $result
+          if ($LASTEXITCODE -ne 0) {
+            if (Test-Path $log) { Get-Content $log }
+            throw "Isolated installer smoke test failed with exit code $LASTEXITCODE"
+          }
+
+          if (-not (Test-Path $result)) {
+            throw "Installer helper did not write its transaction result."
+          }
+
+          $install = Get-Content $result -Raw | ConvertFrom-Json
+          if (-not (Test-Path $install.RootPath)) {
+            throw "Committed mod root is missing: $($install.RootPath)"
+          }
+          if (-not (Test-Path (Join-Path $install.RootPath "regulation.bin"))) {
+            throw "Committed regulation.bin is missing."
+          }
+          if (-not (Test-Path (Join-Path $install.RootPath "parts/readme.txt"))) {
+            throw "Committed loose file is missing."
+          }
+          if (-not (Test-Path (Join-Path $install.RootPath "ero.mod.json"))) {
+            throw "Committed mod manifest is missing."
+          }
+
       - name: Verify publish output
         shell: pwsh
         run: |
