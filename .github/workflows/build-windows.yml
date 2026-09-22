@@ -29,6 +29,42 @@ jobs:
             throw "Unexpected Smithbox revision: $sha"
           }
 
+      - name: Verify install lifecycle invariants
+        shell: pwsh
+        run: |
+          $path = "src/EldenRingOrganizer.App/UI/OrganizerShell.cs"
+          $text = Get-Content $path -Raw
+
+          function Get-MethodBlock([string]$signature, [string]$nextSignature) {
+            $start = $text.IndexOf($signature)
+            if ($start -lt 0) { throw "Missing method: $signature" }
+            $end = $text.IndexOf($nextSignature, $start)
+            if ($end -lt 0) { throw "Missing following method: $nextSignature" }
+            return $text.Substring($start, $end - $start)
+          }
+
+          $poll = Get-MethodBlock "private void PollModInstall()" "private void SelectVanilla()"
+          $select = Get-MethodBlock "private void SelectMod(InstalledMod mod)" "private void StartCurrentSourceLoad()"
+          $prepare = Get-MethodBlock "private bool PrepareDataInspector()" "private void DrawReloadButton()"
+
+          if ($poll.Contains("StartCurrentSourceLoad()")) {
+            throw "Installation completion must never start Smithbox."
+          }
+          if ($poll.Contains("ResetDataSession()")) {
+            throw "Installation completion must never mutate inspector/parser state."
+          }
+          if ($select.Contains("StartCurrentSourceLoad()")) {
+            throw "Selecting a mod must never start Smithbox."
+          }
+          if ($prepare.Contains("StartCurrentSourceLoad()")) {
+            throw "Rendering an inspector tab must never auto-start Smithbox."
+          }
+
+          $calls = ([regex]::Matches($text, [regex]::Escape("StartCurrentSourceLoad();"))).Count
+          if ($calls -ne 3) {
+            throw "Expected exactly three explicit Smithbox load call sites, found $calls."
+          }
+
       - name: Restore
         run: dotnet restore EldenRingOrganizer.slnx
 
