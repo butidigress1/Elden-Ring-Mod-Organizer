@@ -81,10 +81,21 @@ jobs:
 
           New-Item -ItemType Directory -Path $mods, $cache, $logs -Force | Out-Null
 
-          & (Join-Path $root "EldenRingOrganizer.exe") "--install-mod" $archive $mods $cache $log $result
-          if ($LASTEXITCODE -ne 0) {
+          $psi = [System.Diagnostics.ProcessStartInfo]::new()
+          $psi.FileName = Join-Path $root "EldenRingOrganizer.exe"
+          $psi.WorkingDirectory = $root
+          $psi.UseShellExecute = $false
+          $psi.CreateNoWindow = $true
+          @("--install-mod", $archive, $mods, $cache, $log, $result) | ForEach-Object {
+            [void]$psi.ArgumentList.Add($_)
+          }
+
+          $process = [System.Diagnostics.Process]::Start($psi)
+          $process.WaitForExit()
+
+          if ($process.ExitCode -ne 0) {
             if (Test-Path $log) { Get-Content $log }
-            throw "Isolated installer smoke test failed with exit code $LASTEXITCODE"
+            throw "Isolated installer smoke test failed with exit code $($process.ExitCode)"
           }
 
           if (-not (Test-Path $result)) {
