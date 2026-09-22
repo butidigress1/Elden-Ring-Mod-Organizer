@@ -14,7 +14,7 @@ public static class ModInstallCommand
 
     public static int Run(string[] args)
     {
-        if (args.Length != 5)
+        if (args.Length != 6)
         {
             Console.Error.WriteLine("Invalid installer helper arguments.");
             return 2;
@@ -24,6 +24,7 @@ public static class ModInstallCommand
         var modsRoot = args[2];
         var cacheRoot = args[3];
         var logPath = args[4];
+        var resultPath = args[5];
 
         try
         {
@@ -43,14 +44,20 @@ public static class ModInstallCommand
 
             Trace($"SUCCESS {installed.RootPath}");
 
-            Console.Out.WriteLine(JsonSerializer.Serialize(new ModInstallHelperResult
+            var result = new ModInstallHelperResult
             {
                 Name = installed.Name,
                 RootPath = installed.RootPath,
                 Enabled = installed.Enabled,
                 InstalledFrom = installed.InstalledFrom,
                 InstalledAtUtc = installed.InstalledAtUtc
-            }));
+            };
+
+            Directory.CreateDirectory(Path.GetDirectoryName(resultPath)!);
+            var tempResult = resultPath + ".tmp";
+            File.WriteAllText(tempResult, JsonSerializer.Serialize(result));
+            File.Move(tempResult, resultPath, true);
+            Trace($"RESULT {resultPath}");
 
             return 0;
         }
