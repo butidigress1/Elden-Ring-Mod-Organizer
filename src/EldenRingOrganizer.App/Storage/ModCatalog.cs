@@ -32,7 +32,7 @@ public sealed class ModCatalog
             .ToArray();
     }
 
-    public InstalledMod InstallArchive(string archivePath)
+    public InstalledMod InstallArchive(string archivePath, Action<string>? trace = null)
     {
         if (!File.Exists(archivePath))
         {
@@ -40,6 +40,7 @@ public sealed class ModCatalog
         }
 
         Directory.CreateDirectory(_modsRoot);
+        trace?.Invoke("VALIDATED archive and mods root");
 
         var installId = Guid.NewGuid().ToString("N");
         var tempRoot = Path.Combine(_cacheRoot, "install", installId);
@@ -50,13 +51,19 @@ public sealed class ModCatalog
 
         try
         {
+            trace?.Invoke("EXTRACT begin");
             ExtractArchive(archivePath, extractRoot);
+            trace?.Invoke("EXTRACT complete");
 
+            trace?.Invoke("ROOT-DETECT begin");
             var sourceRoot = FindProjectRoot(extractRoot);
+            trace?.Invoke($"ROOT-DETECT {sourceRoot}");
             var name = SanitizeName(Path.GetFileNameWithoutExtension(archivePath));
             var targetRoot = GetUniqueTarget(name);
 
+            trace?.Invoke($"STAGE begin {stageRoot}");
             CopyDirectory(sourceRoot, stageRoot);
+            trace?.Invoke("STAGE files copied");
 
             var manifest = new ModManifest
             {
@@ -67,24 +74,29 @@ public sealed class ModCatalog
             };
 
             SaveManifest(stageRoot, manifest);
+            trace?.Invoke("STAGE manifest written");
 
+            trace?.Invoke($"COMMIT begin {targetRoot}");
             Directory.Move(stageRoot, targetRoot);
+            trace?.Invoke("COMMIT complete");
             return ToInstalledMod(targetRoot, manifest);
         }
-        catch
+        catch (Exception ex)
         {
+            trace?.Invoke($"ROLLBACK {ex.GetType().Name}: {ex.Message}");
             DeleteDirectoryBestEffort(stageRoot);
             throw;
         }
         finally
         {
+            trace?.Invoke("CLEANUP temp");
             DeleteDirectoryBestEffort(tempRoot);
         }
     }
 
     public InstalledMod InstallZip(string archivePath)
     {
-        return InstallArchive(archivePath);
+        return InstallArchive(archivePath, null);
     }
 
     public void SetEnabled(InstalledMod mod, bool enabled)
