@@ -1,4 +1,5 @@
 using EldenRingOrganizer.Rendering;
+using EldenRingOrganizer.Storage;
 using EldenRingOrganizer.UI;
 using Hexa.NET.GLFW;
 using Hexa.NET.ImGui;
@@ -17,17 +18,24 @@ namespace EldenRingOrganizer;
 public static class Program
 {
     [STAThread]
-    public static unsafe void Main()
+    public static unsafe int Main(string[] args)
     {
         Directory.SetCurrentDirectory(AppContext.BaseDirectory);
+
+        if (ModInstallCommand.IsCommand(args))
+        {
+            return ModInstallCommand.Run(args);
+        }
 
         try
         {
             Run();
+            return 0;
         }
         catch (Exception ex)
         {
             MessageBox.Show(ex.ToString(), "Elden Ring Organizer failed to start", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            return 1;
         }
     }
 
@@ -42,7 +50,7 @@ public static class Program
         GLFW.WindowHint(GLFW.GLFW_FOCUSED, 1);
         GLFW.WindowHint(GLFW.GLFW_RESIZABLE, 1);
 
-        GlfwWindowPtr window = GLFW.CreateWindow(1280, 800, "Elden Ring Organizer — 0.1D Mod Inspection", null, null);
+        GlfwWindowPtr window = GLFW.CreateWindow(1280, 800, "Elden Ring Organizer — 0.1E2 Install Lifecycle", null, null);
         if (window.IsNull)
         {
             GLFW.Terminate();
