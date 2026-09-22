@@ -145,7 +145,8 @@ public sealed class ModCatalog
                     continue;
                 }
 
-                var normalized = NormalizeArchivePath(entry.Key);
+                var normalized = NormalizeArchivePath(
+                    entry.Key ?? throw new InvalidDataException("The archive contains a file entry without a path."));
                 paths.Add(normalized);
 
                 if (entry.Size > 0)
