@@ -13,6 +13,7 @@ public sealed class OrganizerShell : IDisposable
     private readonly SettingsStore _settingsStore;
     private readonly AppSettings _settings;
     private readonly ModCatalog _modCatalog;
+    private readonly ModInstallClient _modInstallClient;
     private readonly ReadOnlyParamEditorPanel _paramPanel = new();
     private readonly ReadOnlyTextEditorPanel _textPanel = new();
     private IReadOnlyList<InstalledMod> _mods = [];
@@ -36,6 +37,7 @@ public sealed class OrganizerShell : IDisposable
         _settingsStore = new SettingsStore(_paths.Settings);
         _settings = _settingsStore.Load();
         _modCatalog = new ModCatalog(_paths.Mods, _paths.Cache);
+        _modInstallClient = new ModInstallClient(_paths.Mods, _paths.Cache, _paths.Logs);
         _mods = _modCatalog.Refresh();
 
         if (!string.IsNullOrWhiteSpace(_settings.GameFolder) && Directory.Exists(_settings.GameFolder))
@@ -585,7 +587,7 @@ public sealed class OrganizerShell : IDisposable
             : new Vector4(0.63f, 0.67f, 0.73f, 1f);
         ImGui.TextColored(color, _status);
         ImGui.SameLine();
-        ImGui.TextDisabled($"   0.1D Mod Inspection   |   {_paths.Root}");
+        ImGui.TextDisabled($"   0.1E2 Install Lifecycle   |   {_paths.Root}");
     }
 
     private void PickGameFolder()
@@ -655,7 +657,7 @@ public sealed class OrganizerShell : IDisposable
         var archivePath = dialog.FileName;
         _status = $"Installing {Path.GetFileName(archivePath)}...";
         _statusIsError = false;
-        _modInstallTask = Task.Run(() => _modCatalog.InstallArchive(archivePath));
+        _modInstallTask = _modInstallClient.InstallArchiveAsync(archivePath);
     }
 
     private void PollModInstall()
@@ -676,18 +678,11 @@ public sealed class OrganizerShell : IDisposable
             _fileSearch = "";
             ResetFilePreview();
             ResetDataSession();
-            _autoLoadAttempted = true;
+            _autoLoadAttempted = false;
 
-            if (_installation?.IsValid == true)
-            {
-                StartCurrentSourceLoad();
-                _status = $"Installed {installed.Name}. Loading its Smithbox PARAM and FMG comparison.";
-            }
-            else
-            {
-                _status = $"Installed {installed.Name}. Configure the Elden Ring Game folder to inspect it against vanilla.";
-            }
-
+            _status = _installation?.IsValid == true
+                ? $"Installed {installed.Name}. Files are ready; PARAM/Text parsing will start only when you open those inspectors."
+                : $"Installed {installed.Name}. Configure the Elden Ring Game folder before PARAM/Text inspection.";
             _statusIsError = false;
         }
         catch (Exception ex)
@@ -704,12 +699,9 @@ public sealed class OrganizerShell : IDisposable
         _fileSearch = "";
         ResetFilePreview();
         ResetDataSession();
-        _autoLoadAttempted = true;
-
-        if (_installation?.IsValid == true)
-        {
-            StartCurrentSourceLoad();
-        }
+        _autoLoadAttempted = false;
+        _status = "Vanilla Game Data selected.";
+        _statusIsError = false;
     }
 
     private void SelectMod(InstalledMod mod)
@@ -718,12 +710,9 @@ public sealed class OrganizerShell : IDisposable
         _fileSearch = "";
         ResetFilePreview();
         ResetDataSession();
-        _autoLoadAttempted = true;
-
-        if (_installation?.IsValid == true)
-        {
-            StartCurrentSourceLoad();
-        }
+        _autoLoadAttempted = false;
+        _status = $"{mod.Name} selected. File inspection is immediately available.";
+        _statusIsError = false;
     }
 
     private void StartCurrentSourceLoad()
