@@ -22,7 +22,6 @@ public sealed class OrganizerShell : IDisposable
     private SmithboxParamSession? _dataSession;
     private Task<SmithboxParamSession>? _dataLoadTask;
     private Task<InstalledMod>? _modInstallTask;
-    private bool _autoLoadAttempted;
     private string _fileSearch = "";
     private string? _selectedFilePath;
     private string _filePreviewText = "";
@@ -281,17 +280,29 @@ public sealed class OrganizerShell : IDisposable
             return;
         }
 
-        DrawReloadButton();
-        ImGui.SameLine();
-        ImGui.TextDisabled("Read-only. Smithbox PARAM data is compared against Vanilla Game Data.");
-        ImGui.Separator();
-
-        if (_dataLoadTask is not null || _modInstallTask is not null)
+        if (_dataLoadTask is not null)
         {
             DrawLoadingState();
             return;
         }
 
+        if (_dataSession is null)
+        {
+            ImGui.TextDisabled("PARAM parsing is not started automatically.");
+            if (ImGui.Button("Load PARAM Inspector"))
+            {
+                StartCurrentSourceLoad();
+            }
+
+            ImGui.SameLine();
+            ImGui.TextDisabled("Starts Smithbox only when explicitly requested.");
+            return;
+        }
+
+        DrawReloadButton();
+        ImGui.SameLine();
+        ImGui.TextDisabled("Read-only. Smithbox PARAM data is compared against Vanilla Game Data.");
+        ImGui.Separator();
         _paramPanel.Render();
     }
 
@@ -302,17 +313,29 @@ public sealed class OrganizerShell : IDisposable
             return;
         }
 
-        DrawReloadButton();
-        ImGui.SameLine();
-        ImGui.TextDisabled("Read-only. Smithbox TextData and vanilla FMG comparison are active.");
-        ImGui.Separator();
-
-        if (_dataLoadTask is not null || _modInstallTask is not null)
+        if (_dataLoadTask is not null)
         {
             DrawLoadingState();
             return;
         }
 
+        if (_dataSession is null)
+        {
+            ImGui.TextDisabled("FMG parsing is not started automatically.");
+            if (ImGui.Button("Load Text Inspector"))
+            {
+                StartCurrentSourceLoad();
+            }
+
+            ImGui.SameLine();
+            ImGui.TextDisabled("Starts Smithbox only when explicitly requested.");
+            return;
+        }
+
+        DrawReloadButton();
+        ImGui.SameLine();
+        ImGui.TextDisabled("Read-only. Smithbox TextData and vanilla FMG comparison are active.");
+        ImGui.Separator();
         _textPanel.Render();
     }
 
@@ -322,12 +345,6 @@ public sealed class OrganizerShell : IDisposable
         {
             ImGui.TextDisabled("Configure the Elden Ring Game folder first.");
             return false;
-        }
-
-        if (!_autoLoadAttempted && _dataSession is null && _dataLoadTask is null)
-        {
-            _autoLoadAttempted = true;
-            StartCurrentSourceLoad();
         }
 
         return true;
@@ -623,7 +640,6 @@ public sealed class OrganizerShell : IDisposable
             _settings.GameFolder = candidate.Folder;
             _settingsStore.Save(_settings);
             ResetDataSession();
-            _autoLoadAttempted = false;
             _status = "Game folder saved. Vanilla is the comparison baseline for PARAM and FMG inspection.";
             _statusIsError = false;
         }
@@ -678,7 +694,6 @@ public sealed class OrganizerShell : IDisposable
             _fileSearch = "";
             ResetFilePreview();
             ResetDataSession();
-            _autoLoadAttempted = false;
 
             _status = _installation?.IsValid == true
                 ? $"Installed {installed.Name}. Files are ready; PARAM/Text parsing will start only when you open those inspectors."
@@ -699,7 +714,6 @@ public sealed class OrganizerShell : IDisposable
         _fileSearch = "";
         ResetFilePreview();
         ResetDataSession();
-        _autoLoadAttempted = false;
         _status = "Vanilla Game Data selected.";
         _statusIsError = false;
     }
@@ -710,7 +724,6 @@ public sealed class OrganizerShell : IDisposable
         _fileSearch = "";
         ResetFilePreview();
         ResetDataSession();
-        _autoLoadAttempted = false;
         _status = $"{mod.Name} selected. File inspection is immediately available.";
         _statusIsError = false;
     }
