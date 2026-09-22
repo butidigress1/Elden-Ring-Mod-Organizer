@@ -688,15 +688,17 @@ public sealed class OrganizerShell : IDisposable
         try
         {
             var installed = completed.GetAwaiter().GetResult();
+            var selectedRoot = _selectedMod?.RootPath;
             _mods = _modCatalog.Refresh();
-            _selectedMod = _mods.FirstOrDefault(x =>
-                string.Equals(x.RootPath, installed.RootPath, StringComparison.OrdinalIgnoreCase)) ?? installed;
-            _fileSearch = "";
-            ResetFilePreview();
-            ResetDataSession();
+
+            if (selectedRoot is not null)
+            {
+                _selectedMod = _mods.FirstOrDefault(x =>
+                    string.Equals(x.RootPath, selectedRoot, StringComparison.OrdinalIgnoreCase));
+            }
 
             _status = _installation?.IsValid == true
-                ? $"Installed {installed.Name}. Files are ready; PARAM/Text parsing will start only when you open those inspectors."
+                ? $"Installed {installed.Name}. Installation is complete; current selection and inspectors were left unchanged."
                 : $"Installed {installed.Name}. Configure the Elden Ring Game folder before PARAM/Text inspection.";
             _statusIsError = false;
         }
