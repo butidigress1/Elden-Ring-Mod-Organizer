@@ -1,0 +1,62 @@
+name: Temporary FreeClimb SkyParkour Windows DLL Build
+on:
+  push:
+    branches:
+      - temporary-freeclimb-skyparkour-dll-build
+jobs:
+  build:
+    runs-on: windows-2022
+    timeout-minutes: 90
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Fetch original FreeClimb source
+        shell: pwsh
+        run: |
+          git clone --depth 1 https://github.com/Eelta/FreeClimb.git freeclimb
+          if ($LASTEXITCODE -ne 0) { throw "Failed to obtain FreeClimb source" }
+      - name: Apply isolated FreeClimb input modification
+        shell: pwsh
+        run: |
+          python freeclimb-build/apply_patch.py freeclimb
+          if ($LASTEXITCODE -ne 0) { throw "Patch failed" }
+      - name: Build using Visual Studio 2022 and Windows SDK
+        shell: pwsh
+        run: |
+          Set-Location freeclimb
+          & powershell -NoProfile -ExecutionPolicy Bypass -File tools/build.ps1
+          if ($LASTEXITCODE -ne 0) { throw "FreeClimb build failed" }
+      - name: Validate DLL and package MO2 override
+        shell: pwsh
+        run: |
+          @'
+          from pathlib import Path
+          import struct, zipfile
+          dll=Path('freeclimb/build-multiruntime/Release/FreeClimb.dll')
+          if not dll.is_file(): raise RuntimeError('FreeClimb.dll missing')
+          data=dll.read_bytes()
+          assert data[:2]==b'MZ', 'Not a Windows PE DLL'
+          ofs=struct.unpack_from('<I',data,0x3c)[0]
+          assert data[ofs:ofs+4]==b'PE\\0\\0'.decode('unicode_escape').encode('latin1'), 'Invalid PE signature'
+          machine=struct.unpack_from('<H',data,ofs+4)[0]
+          assert machine==0x8664, f'Expected x64 DLL, got {machine:x}'
+          out=Path('FreeClimb_SkyParkour_MO2_Override.zip')
+          with zipfile.ZipFile(out,'w',compression=zipfile.ZIP_DEFLATED) as z:
+              z.write(dll,'SKSE/Plugins/FreeClimb.dll')
+              z.write('freeclimb/config/FreeClimb.ini','SKSE/Plugins/FreeClimb.ini')
+          print(f'Built {dll}: {dll.stat().st_size} bytes')
+          print(f'MO2 package: {out}, {out.stat().st_size} bytes')
+          '@ | Set-Content -Path package.py
+          python package.py
+          if ($LASTEXITCODE -ne 0) { throw "Validation/package failed" }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: FreeClimb-SkyParkour-MO2-Override
+          path: |
+            FreeClimb_SkyParkour_MO2_Override.zip
+            freeclimb/build-multiruntime/Release/FreeClimb.dll
+          if-no-files-found: error
